@@ -403,8 +403,12 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				INFOPLIST_KEY_LSMinimumSystemVersion = 13.0;
+				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "JustWhisper needs microphone access to record audio for transcription.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "JustWhisper needs microphone access to record and process your voice for audio transcription. Your recordings are stored locally and never shared.";
+				INFOPLIST_KEY_NSQuitAlwaysKeepsWindows = NO;
+				INFOPLIST_KEY_NSSupportsAutomaticTermination = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -434,6 +438,8 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				INFOPLIST_KEY_LSMinimumSystemVersion = 13.0;
+				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "JustWhisper needs microphone access to record audio for transcription.";
 				LD_RUNPATH_SEARCH_PATHS = (
