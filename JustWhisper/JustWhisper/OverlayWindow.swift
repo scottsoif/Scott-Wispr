@@ -9,10 +9,39 @@ import Cocoa
 import SwiftUI
 import AVFoundation
 
+/// Custom NSWindow subclass that handles escape key to cancel operations
+class OverlayNSWindow: NSWindow {
+    weak var overlayWindow: OverlayWindow?
+    
+    override func keyDown(with event: NSEvent) {
+        // Handle escape key
+        if event.keyCode == 53 { // Escape key code
+            overlayWindow?.handleEscapeKey()
+            return // Don't pass the event up the chain
+        } else {
+            super.keyDown(with: event)
+        }
+    }
+    
+    override var canBecomeKey: Bool {
+        return true
+    }
+    
+    override var acceptsFirstResponder: Bool {
+        return true
+    }
+    
+    override func becomeKey() {
+        super.becomeKey()
+        // Make sure we can receive key events
+        makeFirstResponder(self)
+    }
+}
+
 /// Transparent overlay window that displays recording UI and waveform visualization
 @MainActor
 class OverlayWindow: NSObject {
-    private var window: NSWindow?
+    private var window: OverlayNSWindow?
     private var recorder = RecorderController()
     private var waveView: WaveView?
     private var thinkingView: ThinkingView?
@@ -25,6 +54,9 @@ class OverlayWindow: NSObject {
     // Tracking variable for hide task - used to cancel pending hide operations
     private var hideTask: Task<Void, Never>? = nil
     
+    // Tracking variable for transcription task - used to cancel ongoing transcription
+    private var transcriptionTask: Task<Void, Never>? = nil
+    
     init(hotkeyController: HotkeyController? = nil) {
         super.init()
         self.hotkeyController = hotkeyController
@@ -34,8 +66,8 @@ class OverlayWindow: NSObject {
     
     /// Creates and configures the transparent overlay window
     private func setupWindow() {
-        // Create window with transparent background
-        window = NSWindow(
+        // Create window with transparent background using custom window class
+        window = OverlayNSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 240, height: 180),
             styleMask: [.borderless],
             backing: .buffered,
@@ -44,12 +76,15 @@ class OverlayWindow: NSObject {
         
         guard let window = window else { return }
         
+        // Set the overlay window reference for escape key handling
+        window.overlayWindow = self
+        
         // Configure window properties
         window.level = .floating
         window.backgroundColor = .clear
         window.isOpaque = false
         window.hasShadow = false
-        window.ignoresMouseEvents = true
+        window.ignoresMouseEvents = false // Enable mouse events so we can receive key events
         window.collectionBehavior = [.canJoinAllSpaces, .stationary]
         
         // Position window in center of screen
@@ -253,7 +288,7 @@ class OverlayWindow: NSObject {
         errorLabel?.isHidden = true
         
         // Process the recorded audio - overlay will be hidden after processing completes
-        Task {
+        transcriptionTask = Task {
             await processRecordedAudio()
         }
     }
@@ -267,11 +302,29 @@ class OverlayWindow: NSObject {
         }
         
         do {
+            // Check if task was cancelled before starting
+            guard !Task.isCancelled else {
+                print("🛑 OverlayWindow: Transcription task cancelled before starting")
+                return
+            }
+            
             // Read audio file data
             let recordedAudioData = try Data(contentsOf: recordingURL)
             
+            // Check if task was cancelled after reading file
+            guard !Task.isCancelled else {
+                print("🛑 OverlayWindow: Transcription task cancelled after reading audio file")
+                return
+            }
+            
             // Send to Whisper API - overlay stays open during this time
             let transcript = try await whisperClient.transcribe(audioData: recordedAudioData)
+            
+            // Check if task was cancelled after transcription
+            guard !Task.isCancelled else {
+                print("🛑 OverlayWindow: Transcription task cancelled after API call")
+                return
+            }
             
             // Create transcript cleaner with user settings
             let cleaner = TranscriptCleaner(options: getCurrentTranscriptOptions())
@@ -304,11 +357,20 @@ class OverlayWindow: NSObject {
                 return
             }
             
+            // Final cancellation check before pasting
+            guard !Task.isCancelled else {
+                print("🛑 OverlayWindow: Transcription task cancelled before pasting")
+                return
+            }
+            
             // Paste the result immediately if successful
             await pasteText(cleanedText)
             
             // Hide overlay after successful paste with short delay for feedback
             hideOverlayAfterDelay(seconds: 0.5)
+            
+            // Clear the transcription task reference
+            self.transcriptionTask = nil
             
         } catch {
             print("Failed to process audio: \(error)")
@@ -331,6 +393,9 @@ class OverlayWindow: NSObject {
             // Display error in red for 10 seconds
             showError(errorMessage)
             hideOverlayAfterDelay(seconds: 10)
+            
+            // Clear the transcription task reference
+            self.transcriptionTask = nil
         }
     }
     
@@ -540,7 +605,7 @@ class OverlayWindow: NSObject {
         // Update the layer's background color
         overlayLayer.backgroundColor = NSColor(red: red, green: green, blue: blue, alpha: alpha).cgColor
     }
-    
+
     /// Sets up observer for UserDefaults changes to update overlay color live
     private func setupUserDefaultsObserver() {
         // Observe changes to overlay color settings
@@ -561,5 +626,62 @@ class OverlayWindow: NSObject {
     deinit {
         // Remove observer to prevent memory leaks
         NotificationCenter.default.removeObserver(self)
+    }
+    
+    /// Handles escape key press to cancel current operation and hide overlay
+    func handleEscapeKey() {
+        guard let window = window, window.isVisible else { return }
+        
+        print("🛑 OverlayWindow: Escape key pressed - canceling operation")
+        
+        // Cancel any pending hide tasks
+        cancelPendingHideTasks()
+        
+        // Cancel any ongoing transcription
+        if let transcriptionTask = transcriptionTask {
+            print("🛑 OverlayWindow: Canceling transcription task")
+            transcriptionTask.cancel()
+            self.transcriptionTask = nil
+        }
+        
+        // Check current state and provide appropriate feedback
+        if recorder.isRecording {
+            print("🛑 OverlayWindow: Canceling active recording")
+            
+            // Show brief cancellation feedback before hiding
+            showError("Recording canceled")
+            
+            // Stop recording
+            recorder.stopRecording()
+            waveView?.setRecording(false)
+            
+            // Hide after brief feedback
+            hideOverlayAfterDelay(seconds: 0.5)
+        } else if thinkingView?.isHidden == false {
+            print("🛑 OverlayWindow: Canceling transcription process")
+            
+            // Show cancellation feedback
+            showError("Transcription canceled")
+            
+            // Hide after brief feedback  
+            hideOverlayAfterDelay(seconds: 0.5)
+        } else {
+            print("🛑 OverlayWindow: Closing overlay")
+            
+            // Hide immediately if no active operation
+            hideOverlay()
+        }
+        
+        // Stop level update timer
+        levelUpdateTimer?.invalidate()
+        levelUpdateTimer = nil
+        
+        // Stop thinking animation
+        thinkingView?.stopAnimating()
+        
+        // Reset hotkey controller state
+        hotkeyController?.resetRecordingState()
+        
+        print("🛑 OverlayWindow: Operation canceled via escape key")
     }
 }
