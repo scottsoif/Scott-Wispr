@@ -39,6 +39,8 @@ struct SettingsView: View {
     @AppStorage("ProcessFormattingCommands") private var processFormattingCommands: Bool = true
     @AppStorage("ApplySelfCorrection") private var applySelfCorrection: Bool = true
     @AppStorage("AutomaticCapitalization") private var automaticCapitalization: Bool = true
+    @AppStorage("ApplyWordReplacements") private var applyWordReplacements: Bool = true
+    @AppStorage("UseIntelligentWordReplacements") private var useIntelligentWordReplacements: Bool = true
     
     // Azure OpenAI preference
     @AppStorage("UseAzureOpenAI") private var useAzureOpenAI: Bool = false
@@ -59,6 +61,12 @@ struct SettingsView: View {
     @State private var transcriptionResult = ""
     @State private var transcriptionError: String?
     
+    // Word replacement management
+    @State private var wordReplacements: [String: String] = [:]
+    @State private var newSearchTerm = ""
+    @State private var newReplacement = ""
+    private let transcriptCleaner = TranscriptCleaner()
+    
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
@@ -78,11 +86,13 @@ struct SettingsView: View {
                 
                 transcriptCleanerSection
                 
+                wordReplacementSection
+                
                 footerSection
             }
             .padding(24)
         }
-        .frame(width: 480, height: 600)
+        .frame(minWidth: 480, maxWidth: .infinity, minHeight: 600, maxHeight: .infinity)
         .alert("API Key Required", isPresented: $showingAPIKeyAlert) {
             Button("OK") { }
         } message: {
@@ -90,6 +100,7 @@ struct SettingsView: View {
         }
         .onAppear {
             permissionManager.checkPermissionStatus()
+            loadWordReplacements()
         }
     }
     
@@ -506,6 +517,9 @@ struct SettingsView: View {
     private var transcriptCleanerSection: some View {
         GroupBox("Transcript Processing") {
             VStack(alignment: .leading, spacing: 12) {
+                Toggle("Apply Word Replacements", isOn: $applyWordReplacements)
+                    .help("Apply custom word replacements to fix common transcription errors")
+                
                 Toggle("Remove Filler Words", isOn: $removeFillerWords)
                     .help("Remove words like 'um', 'uh', 'like', etc.")
                 
@@ -533,6 +547,119 @@ struct SettingsView: View {
                 Text("Say 'new line', 'period', 'bullet point', etc. to format your text")
                     .font(.caption)
                     .foregroundColor(.secondary)
+            }
+            .padding(.vertical, 4)
+        }
+    }
+    
+    private var wordReplacementSection: some View {
+        GroupBox("Word Replacements") {
+            VStack(alignment: .leading, spacing: 12) {
+                Toggle("Apply Word Replacements", isOn: $applyWordReplacements)
+                    .help("Apply custom word replacements to fix common transcription errors")
+                
+                if applyWordReplacements {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Add New Replacement:")
+                            .font(.caption)
+                            .fontWeight(.medium)
+                        
+                        HStack {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Search for:")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                                TextField("e.g., nearchat", text: $newSearchTerm)
+                                    .textFieldStyle(.roundedBorder)
+                                    .help("The word or phrase to search for")
+                            }
+                            
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Replace with:")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                                TextField("e.g., Ner Chat", text: $newReplacement)
+                                    .textFieldStyle(.roundedBorder)
+                                    .help("The replacement word or phrase")
+                            }
+                            
+                            Button(action: addWordReplacement) {
+                                Image(systemName: "plus.circle.fill")
+                                    .foregroundColor(.accentColor)
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(newSearchTerm.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                                     newReplacement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                            .help("Add word replacement")
+                        }
+                        
+                        if !wordReplacements.isEmpty {
+                            Divider()
+                            
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Current Replacements:")
+                                    .font(.caption)
+                                    .fontWeight(.medium)
+                                
+                                ScrollView {
+                                    LazyVStack(alignment: .leading, spacing: 4) {
+                                        ForEach(Array(wordReplacements.keys).sorted(), id: \.self) { searchTerm in
+                                            if let replacement = wordReplacements[searchTerm] {
+                                                HStack {
+                                                    VStack(alignment: .leading, spacing: 2) {
+                                                        Text("\"\(searchTerm)\"")
+                                                            .font(.caption)
+                                                            .foregroundColor(.primary)
+                                                        Text("→ \"\(replacement)\"")
+                                                            .font(.caption)
+                                                            .foregroundColor(.secondary)
+                                                    }
+                                                    
+                                                    Spacer()
+                                                    
+                                                    Button(action: {
+                                                        removeWordReplacement(searchTerm: searchTerm)
+                                                    }) {
+                                                        Image(systemName: "minus.circle.fill")
+                                                            .foregroundColor(.red)
+                                                    }
+                                                    .buttonStyle(.plain)
+                                                    .help("Remove replacement")
+                                                }
+                                                .padding(.vertical, 2)
+                                                .padding(.horizontal, 8)
+                                                .background(.quaternary.opacity(0.5))
+                                                .cornerRadius(6)
+                                            }
+                                        }
+                                    }
+                                }
+                                .frame(maxHeight: 120)
+                                
+                                if wordReplacements.count > 0 {
+                                    HStack {
+                                        Text("\(wordReplacements.count) replacement\(wordReplacements.count == 1 ? "" : "s")")
+                                            .font(.caption2)
+                                            .foregroundColor(.secondary)
+                                        
+                                        Spacer()
+                                        
+                                        Button("Clear All") {
+                                            clearAllReplacements()
+                                        }
+                                        .font(.caption)
+                                        .foregroundColor(.red)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    Text("Word replacements are disabled. Enable to fix common transcription errors like 'near chat' → 'ner chat'")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             .padding(.vertical, 4)
         }
@@ -594,6 +721,7 @@ struct SettingsView: View {
         processFormattingCommands = true
         applySelfCorrection = true
         automaticCapitalization = true
+        applyWordReplacements = true
         useAzureOpenAI = false
     }
     
@@ -637,6 +765,36 @@ struct SettingsView: View {
         }
         
         isTranscribing = false
+    }
+    
+    // MARK: - Word Replacement Methods
+    
+    private func loadWordReplacements() {
+        wordReplacements = transcriptCleaner.getWordReplacements()
+    }
+    
+    private func addWordReplacement() {
+        let searchTerm = newSearchTerm.trimmingCharacters(in: .whitespacesAndNewlines)
+        let replacement = newReplacement.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        guard !searchTerm.isEmpty && !replacement.isEmpty else { return }
+        
+        transcriptCleaner.addWordReplacement(searchTerm: searchTerm, replacement: replacement)
+        loadWordReplacements()
+        
+        // Clear the input fields
+        newSearchTerm = ""
+        newReplacement = ""
+    }
+    
+    private func removeWordReplacement(searchTerm: String) {
+        transcriptCleaner.removeWordReplacement(searchTerm: searchTerm)
+        loadWordReplacements()
+    }
+    
+    private func clearAllReplacements() {
+        transcriptCleaner.clearWordReplacements()
+        loadWordReplacements()
     }
 }
 

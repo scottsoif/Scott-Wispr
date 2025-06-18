@@ -219,8 +219,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             
             settingsWindow = NSWindow(contentViewController: hostingController)
             settingsWindow?.title = "JustWhisper Preferences"
-            settingsWindow?.styleMask = [.titled, .closable]
+            settingsWindow?.styleMask = [.titled, .closable, .resizable]
             settingsWindow?.isReleasedWhenClosed = false
+            settingsWindow?.setContentSize(NSSize(width: 480, height: 600))
+            settingsWindow?.minSize = NSSize(width: 480, height: 600)
+            settingsWindow?.maxSize = NSSize(width: 800, height: 1000)
             settingsWindow?.center()
         }
         
