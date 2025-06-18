@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+    <dict>
+        <key>CFBundleDevelopmentRegion</key>
+        <string>en</string>
+        <key>CFBundleExecutable</key>
+        <string>JustWhisper</string>
+        <key>CFBundleIdentifier</key>
+        <string>com.nerdevs.justWhisper</string>
+        <key>CFBundleInfoDictionaryVersion</key>
+        <string>6.0</string>
+        <key>CFBundleName</key>
+        <string>JustWhisper</string>
+        <key>CFBundlePackageType</key>
+        <string>APPL</string>
+        <key>CFBundleShortVersionString</key>
+        <string>1.0</string>
+        <key>CFBundleVersion</key>
+        <string>1</string>
+        <key>LSMinimumSystemVersion</key>
+        <string>13.0</string>
+        <key>NSMicrophoneUsageDescription</key>
+        <string>JustWhisper needs microphone access to record and process your voice for audio
+            transcription. Your recordings are stored locally and never shared.</string>
+        <key>LSUIElement</key>
+        <true />
+    </dict>
+</plist>

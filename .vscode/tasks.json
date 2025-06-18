@@ -1,0 +1,22 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Build JustWhisper",
+      "type": "shell",
+      "command": "xcodebuild",
+      "args": [
+        "-project",
+        "JustWhisper.xcodeproj",
+        "-scheme",
+        "JustWhisper",
+        "-configuration",
+        "Debug",
+        "build"
+      ],
+      "group": "build",
+      "isBackground": false,
+      "problemMatcher": []
+    }
+  ]
+}
