@@ -61,6 +61,9 @@ class TranscriptCleaner {
         }
         text = cleanupSentences(text)
         
+        // Strip surrounding quotes if present (in case the transcript was quoted)
+        text = stripSurroundingQuotes(text)
+        
         return text
     }
     
@@ -314,6 +317,22 @@ class TranscriptCleaner {
             return text
         }
     }
+    
+    /// Strips surrounding quotes from text if present
+    private func stripSurroundingQuotes(_ text: String) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        // Check if text starts and ends with matching quotes
+        if (trimmed.hasPrefix("\"") && trimmed.hasSuffix("\"")) ||
+           (trimmed.hasPrefix("'") && trimmed.hasSuffix("'")) {
+            // Remove first and last character (the quotes)
+            let startIndex = trimmed.index(after: trimmed.startIndex)
+            let endIndex = trimmed.index(before: trimmed.endIndex)
+            return String(trimmed[startIndex..<endIndex]).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        
+        return trimmed
+    }
 }
 
 /// Additional Azure OpenAI-based text refinement capabilities
@@ -463,7 +482,10 @@ extension TranscriptCleaner {
             throw NSError(domain: "TranscriptCleaner", code: -1, userInfo: [NSLocalizedDescriptionKey: "No content in response"])
         }
         
-        return content
+        // Strip surrounding quotes if present (Azure OpenAI sometimes wraps responses in quotes)
+        let cleanedContent = stripSurroundingQuotes(content)
+        
+        return cleanedContent
     }
 }
 

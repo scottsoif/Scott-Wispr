@@ -67,10 +67,10 @@ class OverlayWindow: NSObject {
         let overlayColorBlue = UserDefaults.standard.double(forKey: "OverlayColorBlue")
         let overlayColorAlpha = UserDefaults.standard.double(forKey: "OverlayColorAlpha")
         
-        // Use default values if not set (fallback to seafoam green)
-        let red = overlayColorRed > 0 ? overlayColorRed : 0.0
-        let green = overlayColorGreen > 0 ? overlayColorGreen : 0.8
-        let blue = overlayColorBlue > 0 ? overlayColorBlue : 0.4
+        // Use default values if not set (darker blue-gray for better visibility)
+        let red = overlayColorRed > 0 ? overlayColorRed : 0.2
+        let green = overlayColorGreen > 0 ? overlayColorGreen : 0.3
+        let blue = overlayColorBlue > 0 ? overlayColorBlue : 0.5
         let alpha = overlayColorAlpha > 0 ? overlayColorAlpha : 0.85
         
         // Create visual effect view for glass effect
@@ -531,9 +531,9 @@ class OverlayWindow: NSObject {
         let overlayColorBlue = UserDefaults.standard.double(forKey: "OverlayColorBlue")
         let overlayColorAlpha = UserDefaults.standard.double(forKey: "OverlayColorAlpha")
         
-        // Use default values if not set
-        let red = overlayColorRed > 0 ? overlayColorRed : 0.5
-        let green = overlayColorGreen > 0 ? overlayColorGreen : 0.5
+        // Use default values if not set (darker blue-gray for better visibility)
+        let red = overlayColorRed > 0 ? overlayColorRed : 0.2
+        let green = overlayColorGreen > 0 ? overlayColorGreen : 0.3
         let blue = overlayColorBlue > 0 ? overlayColorBlue : 0.5
         let alpha = overlayColorAlpha > 0 ? overlayColorAlpha : 0.85
         

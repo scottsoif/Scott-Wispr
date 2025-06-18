@@ -27,8 +27,8 @@ struct SettingsView: View {
     @AppStorage("OverlayPosition") private var overlayPosition: String = "top-right"
     
     // Overlay color settings - stored as RGB components
-    @AppStorage("OverlayColorRed") private var overlayColorRed: Double = 0.5
-    @AppStorage("OverlayColorGreen") private var overlayColorGreen: Double = 0.5
+    @AppStorage("OverlayColorRed") private var overlayColorRed: Double = 0.2
+    @AppStorage("OverlayColorGreen") private var overlayColorGreen: Double = 0.3
     @AppStorage("OverlayColorBlue") private var overlayColorBlue: Double = 0.5
     @AppStorage("OverlayColorAlpha") private var overlayColorAlpha: Double = 0.85
     

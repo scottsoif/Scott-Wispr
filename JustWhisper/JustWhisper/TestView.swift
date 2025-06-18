@@ -251,9 +251,7 @@ struct TestView: View {
                                     }
                                     .padding(.vertical, 6)
                                     .padding(.horizontal, 8)
-                                    .background(entry.level == .error ? Color.red.opacity(0.05) : 
-                                               entry.level == .warning ? Color.orange.opacity(0.05) : 
-                                               Color.clear)
+                                    .background(backgroundColorFor(level: entry.level))
                                     .cornerRadius(6)
                                     .textSelection(.enabled)
                                     .id(entry.id)
@@ -270,7 +268,7 @@ struct TestView: View {
                             .stroke(Color(NSColor.separatorColor), lineWidth: 1)
                     )
                     .cornerRadius(8)
-                    .onChange(of: currentClient.logs.count) {
+                    .onChange(of: currentClient.logs.count) { _ in
                         if let lastLog = currentClient.logs.last {
                             withAnimation(.easeInOut(duration: 0.3)) {
                                 proxy.scrollTo(lastLog.id, anchor: .bottom)
@@ -345,6 +343,14 @@ struct TestView: View {
         case .info: return .primary
         case .warning: return .orange
         case .error: return .red
+        }
+    }
+    
+    private func backgroundColorFor(level: LogEntry.LogLevel) -> Color {
+        switch level {
+        case .error: return Color.red.opacity(0.05)
+        case .warning: return Color.orange.opacity(0.05)
+        case .info: return Color.clear
         }
     }
     
