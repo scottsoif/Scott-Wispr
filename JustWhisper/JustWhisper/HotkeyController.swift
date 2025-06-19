@@ -166,14 +166,23 @@ class HotkeyController: ObservableObject {
     
     /// Handles individual key events from the event tap
     private func handleEvent(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
-        // Let system events pass through
+        // Handle event tap being disabled by system (timeout or user input)
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-            print("🚨 HotkeyController: Event tap disabled (type: \(type))")
+            print("🚨 HotkeyController: Event tap disabled (type: \(type)). Attempting to re-enable...")
+            if let eventTap = eventTap {
+                CGEvent.tapEnable(tap: eventTap, enable: true)
+                print("✅ HotkeyController: Event tap re-enabled")
+            } else {
+                // Try to restart listening if event tap is nil
+                print("🔄 HotkeyController: Event tap is nil, restarting listener...")
+                stopListening()
+                startListening()
+            }
             return Unmanaged.passRetained(event)
         }
-        
+
         let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
-        
+
         // Handle Fn key specifically
         if keyCode == fnKeyCode {
             // Only handle key down events for toggle behavior
@@ -201,7 +210,7 @@ class HotkeyController: ObservableObject {
                 break
             }
         }
-        
+
         // Pass the event through to allow normal system behavior
         return Unmanaged.passRetained(event)
     }

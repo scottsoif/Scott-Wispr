@@ -1,3 +1,4 @@
+// NOTE: If you see TUINSRemoteViewController/viewServiceDidTerminateWithError errors in logs, this is a known macOS issue when using NSVisualEffectView in borderless NSWindow overlays. There is no direct way to override viewServiceDidTerminateWithError: without using NSViewController. If instability persists, consider using a custom NSView or fallback visual style.
 //
 //  OverlayWindow.swift
 //  JustWhisper
