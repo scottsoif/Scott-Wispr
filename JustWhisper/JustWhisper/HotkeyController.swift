@@ -12,8 +12,10 @@ import Carbon
 class HotkeyController: ObservableObject {
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
-    // 0xB3 (179) is the correct Fn key code for modern macOS versions
+    // Key codes for global hotkeys
     private let fnKeyCode: CGKeyCode = 0xB3 // Fn key code for macOS
+    private let ctrlKeyCode: CGKeyCode = 0x3B // Left Control key code for macOS
+    private let escapeKeyCode: CGKeyCode = 0x35 // Escape key code for macOS
     
     /// Whether we're currently recording (for toggle behavior)
     private var isRecording = false
@@ -30,6 +32,12 @@ class HotkeyController: ObservableObject {
     /// Callback triggered when Fn key is released (hold mode - not used in toggle)
     var onHotkeyRelease: (() -> Void)?
     
+    /// Callback triggered when Ctrl key is pressed during recording (copy-only mode)
+    var onCopyOnlyPress: (() -> Void)?
+    
+    /// Callback triggered when Escape key is pressed to cancel recording
+    var onEscapePress: (() -> Void)?
+    
     /// Whether the hotkey controller is enabled
     @Published var isEnabled: Bool = true {
         didSet {
@@ -44,6 +52,20 @@ class HotkeyController: ObservableObject {
     /// Resets the recording state (called when overlay is closed)
     func resetRecordingState() {
         isRecording = false
+    }
+    
+    /// Forces a complete restart of the hotkey system (useful for debugging)
+    func restart() {
+        print("🔄 HotkeyController: Force restarting hotkey system...")
+        stopListening()
+        resetRecordingState()
+        
+        // Check permissions and restart if available
+        checkAccessibilityPermissions()
+        
+        if isEnabled && AXIsProcessTrusted() {
+            startListening()
+        }
     }
     
     init() {
@@ -183,7 +205,7 @@ class HotkeyController: ObservableObject {
 
         let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
 
-        // Handle Fn key specifically
+        // Handle Fn key for recording toggle
         if keyCode == fnKeyCode {
             // Only handle key down events for toggle behavior
             switch type {
@@ -206,6 +228,36 @@ class HotkeyController: ObservableObject {
                 print("🔼 HotkeyController: Fn key up (ignored in toggle mode)")
                 // Ignore key up events in toggle mode
                 break
+            default:
+                break
+            }
+        }
+        // Handle Ctrl key for copy-only mode (only when recording)
+        else if keyCode == ctrlKeyCode && isRecording {
+            switch type {
+            case .keyDown:
+                print("📋 HotkeyController: Ctrl pressed - copy-only mode")
+                Task { @MainActor in
+                    onCopyOnlyPress?()
+                    isRecording = false // Stop recording after copy-only
+                }
+                // Don't pass this event through to prevent normal Ctrl behavior
+                return nil
+            default:
+                break
+            }
+        }
+        // Handle Escape key for canceling recording
+        else if keyCode == escapeKeyCode && isRecording {
+            switch type {
+            case .keyDown:
+                print("🛑 HotkeyController: Escape pressed - canceling recording")
+                Task { @MainActor in
+                    onEscapePress?()
+                    isRecording = false // Stop recording after escape
+                }
+                // Don't pass this event through to prevent normal Escape behavior
+                return nil
             default:
                 break
             }

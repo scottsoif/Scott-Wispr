@@ -505,8 +505,8 @@ class TranscriptCleaner {
         // Create request body
         let requestBody = AzureOpenAIRequest(
             messages: [
-                AzureOpenAIRequest.Message(role: "system", content: systemPrompt),
-                AzureOpenAIRequest.Message(role: "user", content: text)
+                Message(role: "system", content: systemPrompt),
+                Message(role: "user", content: text)
             ],
             temperature: 0.1, // Low temperature for consistent corrections
             maxTokens: 1000
@@ -543,7 +543,7 @@ class TranscriptCleaner {
             throw NSError(domain: "TranscriptCleaner", code: -1, userInfo: [NSLocalizedDescriptionKey: "No content in response"])
         }
         
-        return content.trimmingCharacters(in: .whitespacesAndNewlines)
+        return content.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
     }
 }
 
@@ -588,20 +588,50 @@ extension TranscriptCleaner {
         }
     }
     
+    /// Configuration for standard OpenAI API
+    struct OpenAIConfig {
+        var baseURL: String
+        var model: String
+        var apiKey: String
+        
+        /// Initialize with user preferences
+        static func fromEnvironment() -> OpenAIConfig? {
+            let baseURL = UserDefaults.standard.string(forKey: "OpenAIBaseURL") ?? ""
+            let model = UserDefaults.standard.string(forKey: "OpenAIModel") ?? ""
+            let apiKey = UserDefaults.standard.string(forKey: "OpenAIAPIKey") ?? ""
+            
+            guard !baseURL.isEmpty, !model.isEmpty, !apiKey.isEmpty else {
+                print("❌ OpenAI configuration incomplete in user preferences")
+                print("📝 To use OpenAI enhancement, please configure:")
+                print("   • OpenAI API Key", apiKey.isEmpty ? "(not set)" : "")
+                print("   • OpenAI Base URL", baseURL.isEmpty ? "(not set)" : "")
+                print("   • OpenAI Model", model.isEmpty ? "(not set)" : "")
+                return nil
+            }
+            
+            return OpenAIConfig(
+                baseURL: baseURL,
+                model: model,
+                apiKey: apiKey
+            )
+        }
+    }
+    
+    /// Shared message structure for OpenAI API requests
+    struct Message: Codable {
+        let role: String
+        let content: String
+        
+        enum CodingKeys: String, CodingKey {
+            case role, content
+        }
+    }
+    
     /// Structure for the Azure OpenAI API request 
     struct AzureOpenAIRequest: Codable {
         let messages: [Message]
         let temperature: Float
         let maxTokens: Int
-        
-        struct Message: Codable {
-            let role: String
-            let content: String
-            
-            enum CodingKeys: String, CodingKey {
-                case role, content
-            }
-        }
         
         enum CodingKeys: String, CodingKey {
             case messages, temperature
@@ -616,13 +646,25 @@ extension TranscriptCleaner {
         
         struct Choice: Codable {
             let index: Int
-            let message: AzureOpenAIRequest.Message
+            let message: Message
         }
     }
     
     /// Use Azure OpenAI to enhance the transcript
     /// - Parameter text: The raw transcript text
     /// - Returns: Enhanced and cleaned text
+    /// Enhanced transcript processing using OpenAI (supports both Azure and standard APIs)
+    func enhanceWithOpenAI(_ text: String) async throws -> String {
+        let openAIProvider = UserDefaults.standard.string(forKey: "OpenAIProvider") ?? "azure"
+        
+        if openAIProvider == "azure" {
+            return try await enhanceWithAzureOpenAI(text)
+        } else {
+            return try await enhanceWithStandardOpenAI(text)
+        }
+    }
+    
+    /// Enhanced transcript processing using Azure OpenAI
     func enhanceWithAzureOpenAI(_ text: String) async throws -> String {
         // Check if Azure OpenAI configuration is available
         guard let config = AzureOpenAIConfig.fromEnvironment() else {
@@ -656,8 +698,8 @@ extension TranscriptCleaner {
         // Create request body
         let requestBody = AzureOpenAIRequest(
             messages: [
-                AzureOpenAIRequest.Message(role: "system", content: systemPrompt),
-                AzureOpenAIRequest.Message(role: "user", content: "Here is the transcribed speech to improve: \"\(text)\"")
+                Message(role: "system", content: systemPrompt),
+                Message(role: "user", content: "Here is the transcribed speech to improve: \"\(text)\"")
             ],
             temperature: 0.3,
             maxTokens: 1000
@@ -698,6 +740,100 @@ extension TranscriptCleaner {
         let cleanedContent = stripSurroundingQuotes(content)
         
         return cleanedContent
+    }
+    
+    /// Structure for standard OpenAI API request
+    struct OpenAIRequest: Codable {
+        let messages: [Message]
+        let model: String
+        let temperature: Float
+        let max_tokens: Int
+        
+        enum CodingKeys: String, CodingKey {
+            case messages, model, temperature
+            case max_tokens = "max_tokens"
+        }
+    }
+    
+    /// Enhanced transcript processing using standard OpenAI API
+    func enhanceWithStandardOpenAI(_ text: String) async throws -> String {
+        // Check if OpenAI configuration is available
+        guard let config = OpenAIConfig.fromEnvironment() else {
+            print("OpenAI configuration not found, using local processing")
+            return cleanTranscript(text)
+        }
+        
+        // Create system prompt with instructions
+        let systemPrompt = """
+        You are an AI assistant that improves transcribed speech. Follow these rules:
+        1. Remove filler words (um, uh, like, etc.)
+        2. Fix grammar and punctuation
+        3. Maintain the speaker's original meaning and intent
+        4. Format properly with paragraphs where appropriate
+        5. Process any explicit formatting commands like "new line", "bullet point", etc.
+        6. If the speaker corrects themselves, only keep the correction
+        
+        Return only the improved text with no explanations or other content.
+        """
+        
+        // Create API request URL
+        let requestURL = "\(config.baseURL)/chat/completions"
+        
+        // Create request body
+        let requestBody = OpenAIRequest(
+            messages: [
+                Message(role: "system", content: systemPrompt),
+                Message(role: "user", content: text)
+            ],
+            model: config.model,
+            temperature: 0.1,
+            max_tokens: 1000
+        )
+        
+        // Create URL request
+        guard let url = URL(string: requestURL) else {
+            throw NSError(domain: "TranscriptCleaner", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid OpenAI URL"])
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(config.apiKey)", forHTTPHeaderField: "Authorization")
+        
+        // Encode request body
+        let encoder = JSONEncoder()
+        request.httpBody = try encoder.encode(requestBody)
+        
+        // Send request
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        // Check HTTP response
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw NSError(domain: "TranscriptCleaner", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid response type"])
+        }
+        
+        guard httpResponse.statusCode == 200 else {
+            let errorMessage = "OpenAI API error: \(httpResponse.statusCode)"
+            print("❌ \(errorMessage)")
+            if let errorData = String(data: data, encoding: .utf8) {
+                print("   Response: \(errorData)")
+            }
+            throw NSError(domain: "TranscriptCleaner", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: errorMessage])
+        }
+        
+        // Parse response
+        let decoder = JSONDecoder()
+        let openAIResponse = try decoder.decode(AzureOpenAIResponse.self, from: data) // Use same response structure
+        
+        guard let choice = openAIResponse.choices.first else {
+            throw NSError(domain: "TranscriptCleaner", code: -1, userInfo: [NSLocalizedDescriptionKey: "No content in OpenAI response"])
+        }
+        
+        let content = choice.message.content
+        
+        let enhancedText = content.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+        print("✅ Successfully enhanced transcript using OpenAI (\(config.model))")
+        return enhancedText
     }
 }
 

@@ -1,365 +1,272 @@
-# JustWhisper - Voice-to-Text with Global Hotkey
+# JustWhisper - Voice-to-Text with Global Hotkeys
 
-A macOS menu bar app that provides instant voice-to-text transcription with a global Command key hotkey.
+A macOS menu bar application that provides voice-to-text transcription using Azure Whisper API. Record your voice, get accurate transcriptions, and automatically paste them into any application.
 
 ## Features
 
-### Global Command Hotkey
+### Global Hotkey System
 
-- **Hold ⌘ (Command)** to start recording
-- **Release ⌘** to stop recording and transcribe
-- Debounced to avoid accidental taps (<150ms)
+- **Fn Key**: Start/stop recording with automatic text pasting
+- **Ctrl Key**: Stop recording and copy to clipboard (no paste)
+- **Escape Key**: Cancel recording at any time
 - Uses low-level `CGEventTap` for system-wide detection
+- Requires accessibility permissions for global functionality
 
-### Screen-Center Overlay
+### Advanced Audio Management
 
-- Semi-transparent glass-morph popup appears when recording
-- Real-time waveform visualization during recording
-- Thinking dots animation during transcription
-- Smooth fade in/out animations
+- **Microphone Selection**: Choose from any available audio input device (Built-in, AirPods, USB mics)
+- **Device Switching**: Automatically handles device changes and reconnections
+- **Real-time Level Monitoring**: Live waveform visualization during recording
+- **Persistent Device Memory**: Remembers your preferred microphone
 
 ### Intelligent Text Processing
 
-- Removes filler words (um, uh, like, etc.)
-- Processes voice commands:
-  - "new line" → `\n`
-  - "bullet point" → `•`
-  - "quote...end quote" → `"..."`
-- "Actually..." self-correction (keeps last clause)
-- Toggle on/off in settings
+- **AI Enhancement**: Optional OpenAI/Azure OpenAI integration for improved transcript quality
+- **Smart Cleaning**: Removes filler words (um, uh, like, etc.)
+- **Voice Commands**: Process "new line", "period", "bullet point" commands
+- **Self-Correction**: Handles "Actually..." corrections automatically
+- **Custom Dictionary**: Add word replacements for common transcription errors
+- **Auto-Capitalization**: Proper sentence formatting
 
-### Azure Whisper Integration
+### Customizable Overlay
 
-- Uses Azure OpenAI Whisper API for transcription
-- Automatic text insertion at cursor position
-- Error handling and retry logic
+- **Flexible Positioning**: Top-left, top-right, bottom-left, bottom-right, or center
+- **Live Color Updates**: Customize background color and opacity with instant preview
+- **Real-time Waveform**: Visual feedback during recording
+- **Thinking Animation**: Progress indicator during transcription
+- **Error Messages**: Clear feedback for issues
 
-## Setup
+### Dual API Support
 
-### 1. Configure Azure Whisper API
+- **Azure OpenAI**: Full Azure Whisper integration with deployment configuration
+- **Standard OpenAI**: Direct OpenAI API support with custom models
+- **Fallback Processing**: Local text cleaning when APIs unavailable
+- **Smart Provider Switching**: Choose your preferred AI service
 
-Edit `Configuration.swift` and replace the placeholder values:
-
-```swift
-static func setupExampleConfiguration() {
-    configureAzureWhisper(
-        apiKey: "your-azure-api-key-here",
-        deployment: "your-deployment-name-here",
-        endpoint: "https://your-resource-name.openai.azure.com"
-    )
-}
-```
-
-### 2. Grant Permissions
-
-The app requires two permissions:
-
-**Microphone Access**
-
-- Automatically requested on first launch
-- Required for audio recording
-
-**Accessibility Access**
-
-- Required for global hotkey detection and text insertion
-- App will prompt to open System Preferences
-- Go to: **System Preferences > Security & Privacy > Privacy > Accessibility**
-- Add and enable **JustWhisper**
-
-### 3. Build and Run
-
-1. Open `JustWhisper.xcodeproj` in Xcode
-2. Build and run (⌘+R)
-3. Look for the microphone icon in your menu bar
-
-## Usage
-
-### Menu Bar Interface
-
-- Click the microphone icon to access recording controls
-- Manual record/play buttons available
-- Settings gear icon to toggle text cleaning
-
-### Global Hotkey
-
-1. **Hold ⌘** anywhere in macOS to start recording
-2. Speak your text while holding the key
-3. **Release ⌘** to stop and transcribe
-4. Text automatically appears at your cursor position
-
-### Voice Commands
-
-While recording, use these commands for formatting:
-
-- **"new line"** - Inserts a line break
-- **"bullet point"** - Inserts a bullet (•)
-- **"quote [text] end quote"** - Wraps text in quotes
-- **"Actually, [new text]"** - Replaces everything before with new text
-
-## Architecture
-
-### Key Components
-
-- **`CmdHotkeyController`** - Global Command key detection
-- **`RecordingOverlay`** - Screen-center UI overlay
-- **`TextProcessor`** - Transcript cleaning and formatting
-- **`TranscriptionService`** - Azure Whisper API integration
-- **`RecorderController`** - Audio recording management
-
-### File Structure
-
-```
-JustWhisper/
-├── CmdHotkeyController.swift    # Global hotkey detection
-├── RecordingOverlay.swift       # Screen overlay UI
-├── TextProcessor.swift          # Text cleaning logic
-├── TranscriptionService.swift   # Azure API integration
-├── Configuration.swift          # API configuration
-├── RecorderController.swift     # Audio recording
-├── WaveView.swift              # Waveform visualization
-├── PopoverView.swift           # Menu bar interface
-├── StatusBarController.swift    # Menu bar management
-└── AppDelegate.swift           # App lifecycle
-```
-
-## Testing
-
-The project includes comprehensive unit tests for text processing:
-
-```bash
-# Run tests in Xcode
-⌘+U
-```
-
-Test coverage includes:
-
-- Filler word removal
-- Voice command processing
-- "Actually..." correction handling
-- Nested quote scenarios
-- Enable/disable functionality
-
-## Troubleshooting
-
-### Hotkey Not Working
-
-- Check Accessibility permissions in System Preferences
-- Restart the app after granting permissions
-
-### Transcription Fails
-
-- Verify Azure API configuration in `Configuration.swift`
-- Check network connectivity
-- Ensure microphone permissions are granted
-
-### Audio Quality Issues
-
-- Check microphone input levels in System Preferences
-- Ensure quiet environment for better recognition
-- Hold Command key steady during recording
-
-## Requirements
-
-- macOS 12.0+
-- Xcode 14.0+
-- Azure OpenAI account with Whisper deployment
-- Microphone access
-- Accessibility permissions
-
-## License
-
-MIT License - see LICENSE file for details.
-
-- **Instant Playback**: Play back your last recording immediately
-- **Permission Management**: Automatic microphone permission handling with System Preferences integration
-- **Persistent Storage**: Recordings saved to `~/Library/Application Support/JustWhisper/recording.caf`
-
-## Technical Stack
-
-- **Language**: Swift 5.10
-- **Target**: macOS 13.0+
-- **UI Framework**: SwiftUI with NSStatusBar integration
-- **Audio**: AVAudioEngine for recording, AVAudioPlayer for playback
-- **Architecture**: MVVM with protocol-based recorder for testability
-
-## Build & Run
+## Quick Start
 
 ### Prerequisites
 
-- Xcode 16.0+
-- macOS 13.0+ development target
+1. **Azure Whisper API**: Azure OpenAI resource with Whisper deployment
+2. **macOS Permissions**: Microphone and accessibility permissions required
 
-### Steps
+### Setup
 
-1. Clone the repository:
+1. **Install**: Place JustWhisper.app in Applications folder
+2. **Launch**: App appears in menu bar with microphone icon
+3. **Configure API**: Open Settings → Azure Whisper API:
+   - API Key
+   - Endpoint URL (e.g., `https://your-resource.openai.azure.com/`)
+   - Deployment name (usually `whisper`)
+   - API Version (e.g., `2024-08-01-preview`)
 
-   ```bash
-   git clone <repository-url>
-   cd justWhisper2
-   ```
+4. **Grant Permissions**: 
+   - **Microphone**: Required for audio recording
+   - **Accessibility**: Required for global hotkeys and text pasting
 
-2. Open the project in Xcode:
+5. **Select Microphone**: Choose your preferred audio input device in settings
 
-   ```bash
-   open JustWhisper.xcodeproj
-   ```
+## Usage
 
-3. Build and run:
-   - Select your development team in the project settings
-   - Choose "My Mac" as the destination
-   - Press Cmd+R to build and run
+### Keyboard Shortcuts
 
-### First Launch
+| Key | Action |
+|-----|--------|
+| **Fn** | Start/Stop recording with auto-paste |
+| **Ctrl** (during recording) | Stop recording and copy to clipboard only |
+| **Escape** (during recording) | Cancel recording |
 
-1. The app will appear as a microphone icon in your menu bar
-2. Click the icon to open the popover
-3. If prompted, grant microphone permission
-4. Start recording by clicking the "Record" button
+### Recording Modes
+
+**Standard Mode (Auto-Paste)**
+1. Press **Fn key** to start recording
+2. Speak your text
+3. Press **Fn key** again to stop
+4. Text automatically pastes into focused application
+
+**Copy-Only Mode**
+1. Press **Fn key** to start recording
+2. Speak your text
+3. Press **Ctrl key** to stop and copy to clipboard
+4. Green "Copied to clipboard" confirmation appears
+
+**Cancel Recording**
+- Press **Escape** anytime during recording to cancel
+
+### Menu Bar Interface
+
+- Click microphone icon for manual controls
+- Access settings and preferences
+- Check permission status
+- Test recording functionality
+
+## Settings & Configuration
+
+### Audio Settings
+
+- **Microphone Device**: Dropdown to select input device
+- **Device Refresh**: Update available devices list
+- **Permission Management**: Check and request microphone access
+- **Audio Test**: Record and playback test functionality
+
+### API Configuration
+
+**Azure Whisper (Required)**
+- API Key, Endpoint, Deployment name, API Version
+- Connection testing available
+
+**OpenAI Enhancement (Optional)**
+Choose between:
+- **Azure OpenAI**: API Key, Endpoint, Deployment, API Version
+- **Standard OpenAI**: API Key, Model (gpt-4o-mini), Base URL
+
+### Overlay Appearance
+
+- **Position**: 5 positioning options with live preview
+- **Background Color**: Full color picker with opacity control
+- **Real-time Updates**: All changes apply immediately
+
+### Transcript Processing
+
+- **Filler Word Removal**: Toggle um, uh, like removal
+- **Voice Commands**: Process formatting commands
+- **Auto-Capitalization**: Sentence case formatting
+- **Custom Word Replacements**: Personal transcription dictionary
+- **Self-Correction**: Handle speaker corrections
+
+## Troubleshooting
+
+### Recording Issues
+
+1. **No Audio Input**
+   - Check microphone selection in settings
+   - Try different input device (Built-in vs AirPods)
+   - Verify microphone permissions
+
+2. **Device Switching Problems**
+   - Use refresh button in microphone settings
+   - Switch to different device and back
+   - Restart app if device not recognized
+
+### Hotkey Issues
+
+1. **Global Keys Not Working**
+   - Verify accessibility permissions in System Preferences
+   - Toggle JustWhisper enabled/disabled in settings
+   - Check conflicting apps using same keys
+
+2. **Function Key Conflicts**
+   - Some apps intercept Fn key
+   - Check System Preferences → Keyboard → Function Keys
+   - Try in different applications
+
+### Overlay Issues
+
+1. **Position Not Updating**
+   - Settings now update immediately
+   - Try different position options
+   - Check for multiple displays
+
+2. **Color Not Changing**
+   - Use color picker in settings
+   - Opacity slider affects visibility
+   - Changes apply without restart
+
+### API & Transcription
+
+1. **Poor Quality**
+   - Check microphone quality and positioning
+   - Enable AI enhancement in settings
+   - Record in quiet environment
+   - Add common errors to word replacements
+
+2. **API Errors**
+   - Verify API credentials in settings
+   - Test connection using built-in test
+   - Check network connectivity
+   - Try switching between Azure/OpenAI providers
+
+## System Requirements
+
+- **macOS**: 14.2 or later
+- **Architecture**: Apple Silicon (ARM64) or Intel x64
+- **Internet**: Required for API calls
+- **Permissions**: Microphone access, Accessibility permissions
+- **Hardware**: Any microphone (built-in, USB, Bluetooth)
+
+## Privacy & Security
+
+- **Local Processing**: Audio processing when possible
+- **Temporary Storage**: Recordings deleted after processing
+- **API Security**: Secure HTTPS connections only
+- **Sandboxed**: App runs in macOS security sandbox
+- **No Persistent Storage**: Audio not saved permanently
+
+## Technical Architecture
+
+### Core Components
+
+- **HotkeyController**: Global Fn/Ctrl/Escape key detection
+- **RecorderController**: Audio recording with device management
+- **OverlayWindow**: Transparent UI with positioning system
+- **WhisperClient**: Azure Whisper API integration
+- **TranscriptCleaner**: Text processing with AI enhancement
+- **SettingsView**: Comprehensive configuration interface
+
+### Audio Pipeline
+
+1. **Device Selection**: Core Audio device enumeration
+2. **Recording**: AVAudioEngine with tap monitoring
+3. **Processing**: CAF to WAV conversion for API
+4. **Transcription**: Azure Whisper or local fallback
+5. **Enhancement**: Optional OpenAI processing
+6. **Output**: Paste via CGEvent or clipboard
+
+### Development Stack
+
+- **Swift 5.0** with **SwiftUI**
+- **AVAudioEngine** for recording
+- **Core Audio** for device management
+- **CGEvent** for global hotkeys and text insertion
+- **UserDefaults** for persistent configuration
 
 ## File Structure
 
 ```
 JustWhisper/
-├── AppDelegate.swift           # App lifecycle and StatusBarController setup
-├── StatusBarController.swift   # NSStatusItem management and popover control
-├── RecorderController.swift    # AVAudioEngine recording with protocol for testing
-├── PlaybackController.swift    # AVAudioPlayer playback management
-├── WaveView.swift             # Real-time waveform visualization
+├── AppDelegate.swift           # App lifecycle and coordination
+├── HotkeyController.swift      # Global hotkey detection (Fn/Ctrl/Esc)
+├── RecorderController.swift    # Audio recording with device management
+├── OverlayWindow.swift         # Recording UI with positioning
+├── WhisperClient.swift         # Azure Whisper API integration
+├── TranscriptCleaner.swift     # Text processing and AI enhancement
+├── SettingsView.swift          # Complete settings interface
 ├── PermissionManager.swift     # Microphone permission handling
-├── PopoverView.swift          # Main SwiftUI popover interface
-└── JustWhisper.entitlements       # Sandbox permissions for microphone access
+├── WaveView.swift             # Real-time waveform visualization
+└── CLAUDE.md                  # Development documentation
 ```
-
-## UI Components
-
-### Popover Layout
-
-- **Waveform Display**: 12 animated bars showing real-time audio levels
-- **Record Button**: Red when recording, blue when stopped
-- **Play Button**: Green when enabled, gray when disabled
-- **Duration Label**: Live timer showing recording length in "X.X s" format
-- **Permission Button**: Orange button to enable microphone access
-
-### Animations
-
-- **Popover**: 0.15s fade+scale animation on open/close
-- **Waveform**: Smooth Core Animation transitions for level changes
-- **Buttons**: Color transitions and state changes
-
-## Recording Details
-
-### File Location
-
-Recordings are saved to:
-
-```
-~/Library/Application Support/JustWhisper/recording.caf
-```
-
-### Audio Format
-
-- **Format**: Core Audio Format (.caf)
-- **Quality**: Uses input device's native format
-- **Overwrite**: Each new recording overwrites the previous one
-
-### Permissions
-
-The app requires microphone access and will:
-
-1. Request permission on first use
-2. Show "Enable Microphone" button if denied
-3. Open System Preferences → Security & Privacy → Microphone on denial
-
-## Testing
-
-### Unit Tests
-
-Run tests with Cmd+U or:
-
-```bash
-xcodebuild test -scheme JustWhisperTests
-```
-
-### Test Coverage
-
-- PermissionManager initialization and state
-- DummyRecorder functionality for integration testing
-- PlaybackController and RecorderController initialization
-- Protocol conformance testing
-
-### DummyRecorder
-
-For testing and development, use `DummyRecorder` instead of `RecorderController`:
-
-```swift
-@StateObject private var recorder = DummyRecorder() // Instead of RecorderController()
-```
-
-## Architecture
-
-### Protocol-Based Design
-
-The `AudioRecorderProtocol` enables easy testing and mocking:
-
-```swift
-protocol AudioRecorderProtocol: ObservableObject {
-    var isRecording: Bool { get }
-    var duration: TimeInterval { get }
-    var audioLevel: Float { get }
-    var hasRecording: Bool { get }
-
-    func startRecording() throws
-    func stopRecording()
-    func getRecordingURL() -> URL?
-}
-```
-
-### State Management
-
-- **ObservableObject**: All controllers conform for SwiftUI integration
-- **@Published**: Properties automatically update UI
-- **Combine**: Reactive programming for smooth state transitions
-
-## Troubleshooting
-
-### Common Issues
-
-1. **No microphone permission**
-
-   - Click "Enable Microphone" in the popover
-   - Manual: System Preferences → Security & Privacy → Microphone
-
-2. **No audio input detected**
-
-   - Check system audio input device
-   - Verify microphone is not muted
-   - Check other apps aren't using the microphone
-
-3. **Recording not playing back**
-   - Ensure recording was completed successfully
-   - Check audio output device
-   - Verify file exists at recording location
-
-### Debug Mode
-
-For development, uncomment debug logging in:
-
-- `RecorderController.swift` - audio engine status
-- `PlaybackController.swift` - playback errors
-- `PermissionManager.swift` - permission state changes
-
-## Screenshots
-
-![JustWhisper Popover](screenshot-popover.png)
-_The popover interface showing waveform visualization and control buttons_
-
-![Menu Bar Icon](screenshot-menubar.png)  
-_The microphone icon in the macOS menu bar_
-
-## License
-
-[Add your license here]
 
 ## Contributing
 
-[Add contribution guidelines here]
+When contributing:
+1. Follow existing Swift coding conventions
+2. Test with multiple microphone types
+3. Verify accessibility permissions work
+4. Test overlay positioning on multiple screens
+5. Check API integrations with both providers
+
+## License
+
+See LICENSE file for details.
+
+## Support
+
+For issues or questions:
+1. Check this README for troubleshooting steps
+2. Verify system permissions in macOS Settings
+3. Test with different microphone devices
+4. Confirm API credentials and connectivity
+
+---
+
+**Version 1.0** - Enhanced voice-to-text with comprehensive device support and flexible output options

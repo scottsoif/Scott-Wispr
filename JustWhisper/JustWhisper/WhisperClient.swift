@@ -11,6 +11,19 @@ import os.log
 /// Logger for Whisper operations
 private let logger = Logger(subsystem: "com.mycompany.justWhisper", category: "WhisperClient")
 
+/// Whisper provider options
+enum WhisperProvider: String, CaseIterable {
+    case azure = "azure"
+    case openai = "openai"
+    
+    var displayName: String {
+        switch self {
+        case .azure: return "Azure Whisper"
+        case .openai: return "OpenAI Whisper"
+        }
+    }
+}
+
 /// Log entry for UI display``
 struct LogEntry: Identifiable {
     let id = UUID()
@@ -31,7 +44,7 @@ struct LogEntry: Identifiable {
     }
 }
 
-/// Client for handling audio transcription via Azure Whisper API
+/// Client for handling audio transcription via multiple Whisper providers
 class WhisperClient: ObservableObject {
     private let session = URLSession.shared
     
@@ -69,12 +82,28 @@ class WhisperClient: ObservableObject {
         logs.removeAll()
     }
     
-    /// Transcribes audio data using Azure Whisper API
+    /// Transcribes audio data using the configured Whisper provider
     /// - Parameter audioData: PCM audio data to transcribe
     /// - Returns: Transcribed text
     func transcribe(audioData: Data) async throws -> String {
         await addLog("Starting transcription...", level: .info)
         
+        // Get provider preference
+        let providerString = UserDefaults.standard.string(forKey: "WhisperProvider") ?? "azure"
+        let provider = WhisperProvider(rawValue: providerString) ?? .azure
+        
+        await addLog("Using \(provider.displayName) for transcription", level: .info)
+        
+        switch provider {
+        case .azure:
+            return try await transcribeWithAzure(audioData: audioData)
+        case .openai:
+            return try await transcribeWithOpenAI(audioData: audioData)
+        }
+    }
+    
+    /// Transcribes audio data using Azure Whisper API
+    private func transcribeWithAzure(audioData: Data) async throws -> String {
         // Azure Whisper configuration - get from UserDefaults (user preferences)
         let apiKey = UserDefaults.standard.string(forKey: "AzureWhisperAPIKey") ?? ""
         let deployment = UserDefaults.standard.string(forKey: "AzureWhisperDeployment") ?? "whisper"
@@ -84,17 +113,17 @@ class WhisperClient: ObservableObject {
         await addLog("Using Azure Whisper configuration from user preferences", level: .info)
         
         guard !apiKey.isEmpty else {
-            await addLog("Missing API key - please configure in settings", level: .error)
+            await addLog("Missing Azure API key - please configure in settings", level: .error)
             throw WhisperError.missingAPIKey
         }
         
         guard !endpoint.isEmpty else {
-            await addLog("Missing endpoint URL - please configure in settings", level: .error)
+            await addLog("Missing Azure endpoint URL - please configure in settings", level: .error)
             throw WhisperError.invalidURL
         }
         
         guard !deployment.isEmpty else {
-            await addLog("Missing deployment name - please configure in settings", level: .error)
+            await addLog("Missing Azure deployment name - please configure in settings", level: .error)
             throw WhisperError.invalidURL
         }
         
@@ -238,15 +267,168 @@ class WhisperClient: ObservableObject {
             }
             
         } catch {
-            await addLog("Transcription failed: \(error.localizedDescription)", level: .error)
+            await addLog("Azure transcription failed: \(error.localizedDescription)", level: .error)
+            throw error
+        }
+    }
+    
+    /// Transcribes audio data using OpenAI Whisper API
+    private func transcribeWithOpenAI(audioData: Data) async throws -> String {
+        // OpenAI Whisper configuration - get from UserDefaults (user preferences)
+        let apiKey = UserDefaults.standard.string(forKey: "OpenAIWhisperAPIKey") ?? ""
+        let model = UserDefaults.standard.string(forKey: "OpenAIWhisperModel") ?? "whisper-1"
+        let baseURL = UserDefaults.standard.string(forKey: "OpenAIWhisperBaseURL") ?? "https://api.openai.com/v1"
+        
+        await addLog("Using OpenAI Whisper configuration from user preferences", level: .info)
+        
+        guard !apiKey.isEmpty else {
+            await addLog("Missing OpenAI API key - please configure in settings", level: .error)
+            throw WhisperError.missingAPIKey
+        }
+        
+        // Construct OpenAI endpoint URL
+        let fullEndpoint = "\(baseURL)/audio/transcriptions"
+        
+        await addLog("Using OpenAI endpoint: \(fullEndpoint)", level: .info)
+        await addLog("Using model: \(model)", level: .info)
+        
+        do {
+            // Convert PCM data to WAV format
+            await addLog("Converting audio to WAV format...", level: .info)
+            let wavData = try convertPCMToWAV(audioData)
+            await addLog("Audio converted successfully, WAV size: \(wavData.count) bytes, original PCM size: \(audioData.count) bytes", level: .info)
+            
+            // Validate audio duration (should be at least 0.1 seconds)
+            let estimatedDuration = Double(audioData.count) / (44100.0 * 4.0) // 4 bytes per sample at 44.1kHz (32-bit float input)
+            await addLog("Estimated audio duration: \(String(format: "%.2f", estimatedDuration)) seconds", level: .info)
+            
+            if estimatedDuration < 0.1 {
+                await addLog("Audio too short, may cause transcription issues", level: .warning)
+            }
+            
+            // Log audio format details
+            await addLog("Audio format: 44.1kHz, 16-bit PCM, mono", level: .info)
+            
+            // Create multipart form request
+            await addLog("Creating OpenAI API request...", level: .info)
+            let request = try createOpenAITranscriptionRequest(
+                endpoint: fullEndpoint,
+                apiKey: apiKey,
+                model: model,
+                audioData: wavData
+            )
+            
+            // Send request
+            await addLog("Sending request to OpenAI Whisper API...", level: .info)
+            let (data, response) = try await session.data(for: request)
+            
+            guard let httpResponse = response as? HTTPURLResponse else {
+                await addLog("Invalid response type", level: .error)
+                throw WhisperError.invalidResponse
+            }
+            
+            await addLog("Received response with status code: \(httpResponse.statusCode)", level: .info)
+            
+            guard httpResponse.statusCode == 200 else {
+                let errorMessage = "HTTP error: \(httpResponse.statusCode)"
+                await addLog(errorMessage, level: .error)
+                
+                // Try to get error details from response
+                if let errorData = String(data: data, encoding: .utf8) {
+                    await addLog("Error details: \(errorData)", level: .error)
+                }
+                
+                throw WhisperError.httpError(httpResponse.statusCode)
+            }
+            
+            // Parse response
+            await addLog("Parsing transcription response...", level: .info)
+            
+            do {
+                let transcriptionResponse = try JSONDecoder().decode(
+                    WhisperResponse.self,
+                    from: data
+                )
+                
+                let transcribedText = transcriptionResponse.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                await addLog("Raw transcription result: '\(transcribedText)'", level: .info)
+                await addLog("Transcription length: \(transcribedText.count) characters", level: .info)
+                
+                // Log additional response details if available
+                if let language = transcriptionResponse.language {
+                    await addLog("Detected language: \(language)", level: .info)
+                }
+                if let duration = transcriptionResponse.duration {
+                    await addLog("Audio duration: \(duration) seconds", level: .info)
+                }
+                
+                // Check for common transcription issues
+                if transcribedText.lowercased() == "you" {
+                    await addLog("⚠️ Detected 'you' response - this may indicate audio quality or API configuration issues", level: .warning)
+                    await addLog("💡 Suggestion: Check microphone levels, reduce background noise, or try recording closer to the microphone", level: .info)
+                }
+                
+                if transcribedText.isEmpty {
+                    await addLog("⚠️ Empty transcription result - checking response structure", level: .warning)
+                    
+                    // Try to extract text from segments if main text is empty
+                    if let segments = transcriptionResponse.segments, !segments.isEmpty {
+                        let segmentTexts = segments.compactMap { $0.text }.joined(separator: " ")
+                        if !segmentTexts.isEmpty {
+                            await addLog("Found text in segments: '\(segmentTexts)'", level: .info)
+                            return segmentTexts.trimmingCharacters(in: .whitespacesAndNewlines)
+                        }
+                    }
+                }
+                
+                await addLog("OpenAI transcription completed successfully", level: .info)
+                return transcribedText
+                
+            } catch {
+                await addLog("JSON decode error: \(error.localizedDescription)", level: .error)
+                
+                // Try to parse as a simpler structure or different format
+                if let responseString = String(data: data, encoding: .utf8) {
+                    await addLog("Attempting to extract text from raw response...", level: .info)
+                    
+                    // Maybe the response is just plain text?
+                    if !responseString.isEmpty && !responseString.contains("{") && !responseString.contains("}") {
+                        await addLog("Response appears to be plain text: '\(responseString)'", level: .info)
+                        return responseString.trimmingCharacters(in: .whitespacesAndNewlines)
+                    }
+                    
+                    // Try to extract text field manually
+                    if let textRange = responseString.range(of: "\"text\"\\s*:\\s*\"([^\"]*)", options: .regularExpression) {
+                        let textValue = String(responseString[textRange])
+                        if let match = textValue.range(of: "\"([^\"]*)", options: .regularExpression) {
+                            let extractedText = String(textValue[match]).replacingOccurrences(of: "\"", with: "")
+                            await addLog("Manually extracted text: '\(extractedText)'", level: .info)
+                            return extractedText.trimmingCharacters(in: .whitespacesAndNewlines)
+                        }
+                    }
+                }
+                
+                throw error
+            }
+            
+        } catch {
+            await addLog("OpenAI transcription failed: \(error.localizedDescription)", level: .error)
             throw error
         }
     }
     
     /// Extract API key for use by other components
     func extractAPIKey() -> String? {
-        // Get API key from UserDefaults (user preferences)
-        return UserDefaults.standard.string(forKey: "AzureWhisperAPIKey")
+        // Get API key based on current provider
+        let providerString = UserDefaults.standard.string(forKey: "WhisperProvider") ?? "azure"
+        let provider = WhisperProvider(rawValue: providerString) ?? .azure
+        
+        switch provider {
+        case .azure:
+            return UserDefaults.standard.string(forKey: "AzureWhisperAPIKey")
+        case .openai:
+            return UserDefaults.standard.string(forKey: "OpenAIWhisperAPIKey")
+        }
     }
     
     /// Converts PCM data to WAV format for API compatibility
@@ -348,6 +530,67 @@ class WhisperClient: ObservableObject {
         
         // Create multipart body
         var body = Data()
+        
+        // Response format - try verbose_json to get more details
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"response_format\"\r\n\r\n".data(using: .utf8)!)
+        body.append("verbose_json\r\n".data(using: .utf8)!)
+        
+        // Language (helps with accuracy)
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"language\"\r\n\r\n".data(using: .utf8)!)
+        body.append("en\r\n".data(using: .utf8)!)
+        
+        // Temperature for more focused results - using 0.0 for most deterministic output
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"temperature\"\r\n\r\n".data(using: .utf8)!)
+        body.append("0.0\r\n".data(using: .utf8)!)
+        
+        // Audio file
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"audio.wav\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: audio/wav\r\n\r\n".data(using: .utf8)!)
+        body.append(audioData)
+        body.append("\r\n".data(using: .utf8)!)
+        
+        // End boundary
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+        
+        request.httpBody = body
+        
+        return request
+    }
+    
+    /// Creates a multipart form request for the OpenAI Whisper API
+    private func createOpenAITranscriptionRequest(
+        endpoint: String,
+        apiKey: String,
+        model: String,
+        audioData: Data
+    ) throws -> URLRequest {
+        guard let url = URL(string: endpoint) else {
+            throw WhisperError.invalidURL
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        
+        // Set headers for OpenAI
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        
+        let boundary = UUID().uuidString
+        request.setValue(
+            "multipart/form-data; boundary=\(boundary)",
+            forHTTPHeaderField: "Content-Type"
+        )
+        
+        // Create multipart body
+        var body = Data()
+        
+        // Model parameter
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"model\"\r\n\r\n".data(using: .utf8)!)
+        body.append("\(model)\r\n".data(using: .utf8)!)
         
         // Response format - try verbose_json to get more details
         body.append("--\(boundary)\r\n".data(using: .utf8)!)

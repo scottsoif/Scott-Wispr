@@ -83,6 +83,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         hotkeyController?.onHotkeyRelease = { [weak self] in
             self?.stopRecording()
         }
+        hotkeyController?.onCopyOnlyPress = { [weak self] in
+            self?.stopRecordingCopyOnly()
+        }
+        hotkeyController?.onEscapePress = { [weak self] in
+            self?.cancelRecording()
+        }
     }
     
     /// Creates the transparent overlay window
@@ -118,6 +124,49 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     /// Stops recording and processes the audio
     private func stopRecording() {
         overlayWindow?.stopRecording()
+    }
+    
+    /// Stops recording and processes the audio in copy-only mode (no paste)
+    private func stopRecordingCopyOnly() {
+        overlayWindow?.stopRecordingCopyOnly()
+    }
+    
+    /// Cancels current recording and hides overlay
+    private func cancelRecording() {
+        print("🛑 AppDelegate: Canceling recording via Escape key")
+        overlayWindow?.handleEscapeKey()
+    }
+    
+    /// Forces the overlay to hide (for debugging stuck overlays)
+    func forceHideOverlay() {
+        print("🚨 AppDelegate: Force hiding overlay via debug command")
+        overlayWindow?.forceHide()
+    }
+    
+    /// Restarts the hotkey system (for debugging non-working hotkeys)
+    func restartHotkeys() {
+        print("🔄 AppDelegate: Restarting hotkey system via debug command")
+        hotkeyController?.restart()
+    }
+    
+    /// Shows the overlay for color preview (without recording)
+    func showOverlayPreview() {
+        print("🎨 AppDelegate: Showing overlay preview for color adjustment")
+        guard let overlayWindow = overlayWindow else {
+            print("❌ AppDelegate: Cannot show preview - overlayWindow is nil")
+            return
+        }
+        overlayWindow.showPreview()
+    }
+    
+    /// Hides the overlay preview
+    func hideOverlayPreview() {
+        print("🎨 AppDelegate: Hiding overlay preview")
+        guard let overlayWindow = overlayWindow else {
+            print("❌ AppDelegate: Cannot hide preview - overlayWindow is nil")
+            return
+        }
+        overlayWindow.hidePreview()
     }
     
     /// Toggles the enabled state of JustWhisper

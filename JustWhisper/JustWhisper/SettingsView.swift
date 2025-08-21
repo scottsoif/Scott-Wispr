@@ -9,11 +9,19 @@ import SwiftUI
 import AVFoundation
 /// SwiftUI view for user preferences and configuration
 struct SettingsView: View {
+    // Whisper Provider Selection
+    @AppStorage("WhisperProvider") private var whisperProvider: String = "azure"
+    
     // Azure Whisper Settings
     @AppStorage("AzureWhisperAPIKey") private var azureWhisperAPIKey: String = ""
     @AppStorage("AzureWhisperEndpoint") private var azureWhisperEndpoint: String = ""
     @AppStorage("AzureWhisperDeployment") private var azureWhisperDeployment: String = "whisper"
     @AppStorage("AzureWhisperAPIVersion") private var azureWhisperAPIVersion: String = "2024-08-01-preview"
+    
+    // OpenAI Whisper Settings
+    @AppStorage("OpenAIWhisperAPIKey") private var openAIWhisperAPIKey: String = ""
+    @AppStorage("OpenAIWhisperModel") private var openAIWhisperModel: String = "whisper-1"
+    @AppStorage("OpenAIWhisperBaseURL") private var openAIWhisperBaseURL: String = "https://api.openai.com/v1"
     
     // Azure OpenAI Settings
     @AppStorage("AzureOpenAIAPIKey") private var azureOpenAIAPIKey: String = ""
@@ -21,10 +29,15 @@ struct SettingsView: View {
     @AppStorage("AzureOpenAIDeployment") private var azureOpenAIDeployment: String = "gpt-4o-mini"
     @AppStorage("AzureOpenAIAPIVersion") private var azureOpenAIAPIVersion: String = "2024-04-01-preview"
     
+    // Standard OpenAI Settings
+    @AppStorage("OpenAIAPIKey") private var openAIAPIKey: String = ""
+    @AppStorage("OpenAIModel") private var openAIModel: String = "gpt-4o-mini"
+    @AppStorage("OpenAIBaseURL") private var openAIBaseURL: String = "https://api.openai.com/v1"
+    
     @AppStorage("JustWhisperEnabled") private var isEnabled: Bool = true
     @AppStorage("UseTestMode") private var useTestMode: Bool = false
     @AppStorage("OverlayOpacity") private var overlayOpacity: Double = 0.85
-    @AppStorage("OverlayPosition") private var overlayPosition: String = "top-right"
+    @AppStorage("OverlayPosition") private var overlayPosition: String = "center"
     
     // Overlay color settings - stored as RGB components
     @AppStorage("OverlayColorRed") private var overlayColorRed: Double = 0.2
@@ -42,11 +55,15 @@ struct SettingsView: View {
     @AppStorage("ApplyWordReplacements") private var applyWordReplacements: Bool = true
     @AppStorage("UseIntelligentWordReplacements") private var useIntelligentWordReplacements: Bool = true
     
-    // Azure OpenAI preference
+    // OpenAI provider preference
     @AppStorage("UseAzureOpenAI") private var useAzureOpenAI: Bool = false
+    @AppStorage("OpenAIProvider") private var openAIProvider: String = "azure" // "azure" or "openai"
     
     @State private var showingAPIKeyAlert = false
     @State private var showingTestView = false
+    @State private var hasAccessibilityPermission = false
+    @State private var showDebuggingSection = false
+    @State private var isColorPickerOpen = false
     
     // Use the new PermissionManager
     @StateObject private var permissionManager = PermissionManager()
@@ -74,11 +91,15 @@ struct SettingsView: View {
                 
                 generalSection
                 
+                permissionsSection
+                
+                debuggingSection
+                
                 audioTestSection
                 
                 whisperSection
                 
-                azureOpenAISection
+                openAISection
                 
                 overlaySection
                 
@@ -99,8 +120,16 @@ struct SettingsView: View {
             Text("Please enter your Azure Whisper API key to use transcription features.")
         }
         .onAppear {
-            permissionManager.checkPermissionStatus()
+            checkPermissions()
             loadWordReplacements()
+        }
+        .onDisappear {
+            // Hide overlay preview when settings window closes
+            if isColorPickerOpen {
+                print("🎨 Settings window closing - hiding overlay preview")
+                hideOverlayPreview()
+                isColorPickerOpen = false
+            }
         }
     }
     
@@ -147,6 +176,114 @@ struct SettingsView: View {
         }
     }
     
+    private var permissionsSection: some View {
+        GroupBox("Permission Status") {
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("Current permissions:")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                        Spacer()
+                    }
+                    
+                    // Accessibility Permission
+                    HStack {
+                        Image(systemName: hasAccessibilityPermission ? "checkmark.circle.fill" : "xmark.circle.fill")
+                            .foregroundColor(hasAccessibilityPermission ? .green : .red)
+                        
+                        Text("Accessibility: \(hasAccessibilityPermission ? "Granted" : "Not Granted")")
+                            .font(.system(.body, design: .monospaced))
+                        
+                        Spacer()
+                        
+                        Button("Refresh") {
+                            checkPermissions()
+                        }
+                        .buttonStyle(.borderless)
+                        .foregroundColor(.blue)
+                        .help("Check current permission status")
+                    }
+                    
+                    // Microphone Permission
+                    HStack {
+                        Image(systemName: permissionManager.hasRecordPermission ? "checkmark.circle.fill" : "xmark.circle.fill")
+                            .foregroundColor(permissionManager.hasRecordPermission ? .green : .red)
+                        
+                        Text("Microphone: \(permissionManager.hasRecordPermission ? "Granted" : "Not Granted")")
+                            .font(.system(.body, design: .monospaced))
+                        
+                        Spacer()
+                    }
+                }
+                
+                if !hasAccessibilityPermission || !permissionManager.hasRecordPermission {
+                    Divider()
+                    
+                    VStack(alignment: .leading, spacing: 8) {
+                        if !hasAccessibilityPermission {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Accessibility permission is required for the Fn key to work globally (even when JustWhisper is not the active app).")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                
+                                Button("Grant Accessibility Permission") {
+                                    let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!
+                                    NSWorkspace.shared.open(url)
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .help("Opens System Preferences to grant accessibility permission")
+                            }
+                        }
+                        
+                        if !permissionManager.hasRecordPermission {
+                            Button("Grant Microphone Permission") {
+                                permissionManager.requestPermission()
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .help("Request microphone permission")
+                        }
+                    }
+                }
+            }
+            .padding(.vertical, 4)
+        }
+    }
+    
+    private var debuggingSection: some View {
+        GroupBox("Troubleshooting") {
+            VStack(alignment: .leading, spacing: 12) {
+                DisclosureGroup("Debug Controls", isExpanded: $showDebuggingSection) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Use these controls if the overlay is stuck visible or the Fn key is not working:")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        
+                        HStack(spacing: 12) {
+                            Button("Force Hide Overlay") {
+                                // Need to access the overlay window through AppDelegate
+                                if let appDelegate = NSApp.delegate as? AppDelegate {
+                                    appDelegate.forceHideOverlay()
+                                }
+                            }
+                            .buttonStyle(.bordered)
+                            .help("Forcefully hide the overlay if it's stuck visible")
+                            
+                            Button("Restart Hotkeys") {
+                                if let appDelegate = NSApp.delegate as? AppDelegate {
+                                    appDelegate.restartHotkeys()
+                                }
+                            }
+                            .buttonStyle(.bordered)
+                            .help("Restart the global hotkey system")
+                        }
+                    }
+                }
+            }
+            .padding(.vertical, 4)
+        }
+    }
+    
     private var audioTestSection: some View {
         GroupBox("Audio Test") {
             VStack(alignment: .leading, spacing: 12) {
@@ -156,6 +293,49 @@ struct SettingsView: View {
                         Text(permissionManager.hasRecordPermission ? "Authorized" : "Not Authorized")
                             .foregroundColor(permissionManager.hasRecordPermission ? .green : .red)
                             .fontWeight(.medium)
+                    }
+                    
+                    // Microphone selection dropdown
+                    HStack {
+                        Text("Microphone Device:")
+                            .font(.caption)
+                            .fontWeight(.medium)
+                        
+                        Spacer()
+                        
+                        Picker("Microphone Device", selection: $recorder.selectedDevice) {
+                            ForEach(recorder.availableDevices) { device in
+                                Text(device.name).tag(device)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .help("Select which microphone to use for recording")
+                        .onChange(of: recorder.selectedDevice) { _, newDevice in
+                            do {
+                                try recorder.setInputDevice(newDevice)
+                                print("✅ Successfully changed microphone to: \(newDevice.name)")
+                            } catch {
+                                print("❌ Failed to change microphone: \(error)")
+                                // Show user feedback for device switching issues
+                                if newDevice.name.contains("AirPods") {
+                                    print("💡 Tip: Make sure AirPods are connected and set as input device in System Preferences")
+                                }
+                            }
+                        }
+                        
+                        Button(action: {
+                            recorder.refreshDevices()
+                        }) {
+                            Image(systemName: "arrow.clockwise")
+                        }
+                        .buttonStyle(.bordered)
+                        .help("Refresh available microphones")
+                    }
+                    
+                    if !recorder.availableDevices.isEmpty {
+                        Text("Found \(recorder.availableDevices.count) microphone device\(recorder.availableDevices.count == 1 ? "" : "s")")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
                     }
                     
                     HStack {
@@ -300,116 +480,256 @@ struct SettingsView: View {
     }
     
     private var whisperSection: some View {
-        GroupBox("Azure Whisper API") {
+        GroupBox("Whisper API (for Transcription)") {
             VStack(alignment: .leading, spacing: 12) {
+                // Provider selection
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("API Key")
+                    Text("Whisper Provider")
                         .font(.caption)
                         .fontWeight(.medium)
                     
-                    SecureField("Enter your Azure Whisper API key", text: $azureWhisperAPIKey)
-                        .textFieldStyle(.roundedBorder)
-                        .help("Your Azure Whisper API key for transcription")
+                    Picker("Whisper Provider", selection: $whisperProvider) {
+                        Text("Azure Whisper").tag("azure")
+                        Text("OpenAI Whisper").tag("openai")
+                    }
+                    .pickerStyle(.segmented)
+                    .help("Choose between Azure Whisper or OpenAI Whisper API")
                 }
                 
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Endpoint URL")
-                        .font(.caption)
-                        .fontWeight(.medium)
-                    
-                    TextField("https://your-resource.openai.azure.com/", text: $azureWhisperEndpoint)
-                        .textFieldStyle(.roundedBorder)
-                        .help("Azure Whisper endpoint URL")
-                }
+                Divider()
                 
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Deployment")
-                            .font(.caption)
-                            .fontWeight(.medium)
-                        
-                        TextField("whisper", text: $azureWhisperDeployment)
-                            .textFieldStyle(.roundedBorder)
-                            .help("Azure Whisper deployment name")
-                    }
-                    
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("API Version")
-                            .font(.caption)
-                            .fontWeight(.medium)
-                        
-                        TextField("2024-08-01-preview", text: $azureWhisperAPIVersion)
-                            .textFieldStyle(.roundedBorder)
-                            .help("Azure API version")
-                    }
+                if whisperProvider == "azure" {
+                    azureWhisperFields
+                } else {
+                    openAIWhisperFields
                 }
                 
                 Button("Test Connection") {
-                    testAPIConnection()
+                    testWhisperConnection()
                 }
-                .disabled(azureWhisperAPIKey.isEmpty || azureWhisperEndpoint.isEmpty || azureWhisperDeployment.isEmpty)
+                .disabled(!canTestWhisper)
             }
             .padding(.vertical, 4)
         }
     }
     
-    private var azureOpenAISection: some View {
-        GroupBox("Azure OpenAI API (for Enhanced Transcript Processing)") {
+    private var azureWhisperFields: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("API Key")
+                    .font(.caption)
+                    .fontWeight(.medium)
+                
+                SecureField("Enter your Azure Whisper API key", text: $azureWhisperAPIKey)
+                    .textFieldStyle(.roundedBorder)
+                    .help("Your Azure Whisper API key for transcription")
+            }
+            
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Endpoint URL")
+                    .font(.caption)
+                    .fontWeight(.medium)
+                
+                TextField("https://your-resource.openai.azure.com/", text: $azureWhisperEndpoint)
+                    .textFieldStyle(.roundedBorder)
+                    .help("Azure Whisper endpoint URL")
+            }
+            
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Deployment")
+                        .font(.caption)
+                        .fontWeight(.medium)
+                    
+                    TextField("whisper", text: $azureWhisperDeployment)
+                        .textFieldStyle(.roundedBorder)
+                        .help("Azure Whisper deployment name")
+                }
+                
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("API Version")
+                        .font(.caption)
+                        .fontWeight(.medium)
+                    
+                    TextField("2024-08-01-preview", text: $azureWhisperAPIVersion)
+                        .textFieldStyle(.roundedBorder)
+                        .help("Azure API version")
+                }
+            }
+        }
+    }
+    
+    private var openAIWhisperFields: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("API Key")
+                    .font(.caption)
+                    .fontWeight(.medium)
+                
+                SecureField("Enter your OpenAI API key", text: $openAIWhisperAPIKey)
+                    .textFieldStyle(.roundedBorder)
+                    .help("Your OpenAI API key for transcription")
+            }
+            
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Model")
+                        .font(.caption)
+                        .fontWeight(.medium)
+                    
+                    TextField("whisper-1", text: $openAIWhisperModel)
+                        .textFieldStyle(.roundedBorder)
+                        .help("OpenAI Whisper model (whisper-1 is the standard model)")
+                }
+                
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Base URL")
+                        .font(.caption)
+                        .fontWeight(.medium)
+                    
+                    TextField("https://api.openai.com/v1", text: $openAIWhisperBaseURL)
+                        .textFieldStyle(.roundedBorder)
+                        .help("OpenAI API base URL (change for custom endpoints)")
+                }
+            }
+        }
+    }
+    
+    private var canTestWhisper: Bool {
+        if whisperProvider == "azure" {
+            return !azureWhisperAPIKey.isEmpty && !azureWhisperEndpoint.isEmpty && !azureWhisperDeployment.isEmpty
+        } else {
+            return !openAIWhisperAPIKey.isEmpty && !openAIWhisperModel.isEmpty
+        }
+    }
+    
+    private var openAISection: some View {
+        GroupBox("OpenAI API (for Enhanced Transcript Processing)") {
             VStack(alignment: .leading, spacing: 12) {
+                // Provider selection
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("API Key")
+                    Text("Provider")
                         .font(.caption)
                         .fontWeight(.medium)
                     
-                    SecureField("Enter your Azure OpenAI API key", text: $azureOpenAIAPIKey)
-                        .textFieldStyle(.roundedBorder)
-                        .help("Your Azure OpenAI API key for transcript enhancement")
-                }
-                
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Endpoint URL")
-                        .font(.caption)
-                        .fontWeight(.medium)
-                    
-                    TextField("https://your-resource.openai.azure.com/", text: $azureOpenAIEndpoint)
-                        .textFieldStyle(.roundedBorder)
-                        .help("Azure OpenAI endpoint URL")
-                }
-                
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Deployment")
-                            .font(.caption)
-                            .fontWeight(.medium)
-                        
-                        TextField("gpt-4o-mini", text: $azureOpenAIDeployment)
-                            .textFieldStyle(.roundedBorder)
-                            .help("Azure OpenAI deployment name")
+                    Picker("OpenAI Provider", selection: $openAIProvider) {
+                        Text("Azure OpenAI").tag("azure")
+                        Text("Standard OpenAI").tag("openai")
                     }
-                    
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("API Version")
-                            .font(.caption)
-                            .fontWeight(.medium)
-                        
-                        TextField("2024-04-01-preview", text: $azureOpenAIAPIVersion)
-                            .textFieldStyle(.roundedBorder)
-                            .help("Azure OpenAI API version")
-                    }
+                    .pickerStyle(.segmented)
+                    .help("Choose between Azure OpenAI or standard OpenAI API")
                 }
                 
-                Toggle("Use Azure OpenAI for Enhanced Formatting", isOn: $useAzureOpenAI)
-                    .disabled(azureOpenAIAPIKey.isEmpty || azureOpenAIEndpoint.isEmpty || azureOpenAIDeployment.isEmpty)
-                    .help("Uses Azure OpenAI to intelligently format and clean transcripts")
+                Divider()
                 
-                if azureOpenAIAPIKey.isEmpty || azureOpenAIEndpoint.isEmpty || azureOpenAIDeployment.isEmpty {
-                    Text("Complete all fields above to enable Azure OpenAI transcript enhancement")
+                if openAIProvider == "azure" {
+                    azureOpenAIFields
+                } else {
+                    standardOpenAIFields
+                }
+                
+                Toggle("Use OpenAI for Enhanced Formatting", isOn: $useAzureOpenAI)
+                    .disabled(!canEnableOpenAI)
+                    .help("Uses OpenAI to intelligently format and clean transcripts")
+                
+                if !canEnableOpenAI {
+                    Text("Complete all fields above to enable OpenAI transcript enhancement")
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
             .padding(.vertical, 4)
+        }
+    }
+    
+    private var azureOpenAIFields: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("API Key")
+                    .font(.caption)
+                    .fontWeight(.medium)
+                
+                SecureField("Enter your Azure OpenAI API key", text: $azureOpenAIAPIKey)
+                    .textFieldStyle(.roundedBorder)
+                    .help("Your Azure OpenAI API key for transcript enhancement")
+            }
+            
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Endpoint URL")
+                    .font(.caption)
+                    .fontWeight(.medium)
+                
+                TextField("https://your-resource.openai.azure.com/", text: $azureOpenAIEndpoint)
+                    .textFieldStyle(.roundedBorder)
+                    .help("Azure OpenAI endpoint URL")
+            }
+            
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Deployment")
+                        .font(.caption)
+                        .fontWeight(.medium)
+                    
+                    TextField("gpt-4o-mini", text: $azureOpenAIDeployment)
+                        .textFieldStyle(.roundedBorder)
+                        .help("Azure OpenAI deployment name")
+                }
+                
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("API Version")
+                        .font(.caption)
+                        .fontWeight(.medium)
+                    
+                    TextField("2024-04-01-preview", text: $azureOpenAIAPIVersion)
+                        .textFieldStyle(.roundedBorder)
+                        .help("Azure OpenAI API version")
+                }
+            }
+        }
+    }
+    
+    private var standardOpenAIFields: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("API Key")
+                    .font(.caption)
+                    .fontWeight(.medium)
+                
+                SecureField("Enter your OpenAI API key", text: $openAIAPIKey)
+                    .textFieldStyle(.roundedBorder)
+                    .help("Your OpenAI API key for transcript enhancement")
+            }
+            
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Model")
+                        .font(.caption)
+                        .fontWeight(.medium)
+                    
+                    TextField("gpt-4o-mini", text: $openAIModel)
+                        .textFieldStyle(.roundedBorder)
+                        .help("OpenAI model to use (e.g., gpt-4o-mini, gpt-4, gpt-3.5-turbo)")
+                }
+                
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Base URL")
+                        .font(.caption)
+                        .fontWeight(.medium)
+                    
+                    TextField("https://api.openai.com/v1", text: $openAIBaseURL)
+                        .textFieldStyle(.roundedBorder)
+                        .help("OpenAI API base URL (change for custom endpoints)")
+                }
+            }
+        }
+    }
+    
+    private var canEnableOpenAI: Bool {
+        if openAIProvider == "azure" {
+            return !azureOpenAIAPIKey.isEmpty && !azureOpenAIEndpoint.isEmpty && !azureOpenAIDeployment.isEmpty
+        } else {
+            return !openAIAPIKey.isEmpty && !openAIModel.isEmpty
         }
     }
     
@@ -428,27 +748,13 @@ struct SettingsView: View {
                         Text("Top Right").tag("top-right")
                         Text("Bottom Left").tag("bottom-left")
                         Text("Bottom Right").tag("bottom-right")
+                        Text("Center").tag("center")
                     }
                     .pickerStyle(.menu)
                     .help("Position of the recording overlay on screen")
                 }
                 
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text("Opacity")
-                            .font(.caption)
-                            .fontWeight(.medium)
-                        
-                        Spacer()
-                        
-                        Text("\(Int(overlayOpacity * 100))%")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    
-                    Slider(value: $overlayOpacity, in: 0.3...1.0)
-                        .help("Transparency level of the recording overlay")
-                }
+
                 
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
@@ -468,23 +774,88 @@ struct SettingsView: View {
                             )
                     }
                     
-                    ColorPicker("Background Color", selection: Binding(
-                        get: {
-                            Color(red: overlayColorRed, green: overlayColorGreen, blue: overlayColorBlue, opacity: overlayColorAlpha)
-                        },
-                        set: { newColor in
-                            if let components = newColor.cgColor?.components {
-                                overlayColorRed = Double(components[0])
-                                overlayColorGreen = Double(components[1])
-                                overlayColorBlue = Double(components[2])
-                                if components.count > 3 {
-                                    overlayColorAlpha = Double(components[3])
+                    VStack(alignment: .leading, spacing: 8) {
+                        ColorPicker("Background Color", selection: Binding(
+                            get: {
+                                Color(red: overlayColorRed, green: overlayColorGreen, blue: overlayColorBlue, opacity: overlayColorAlpha)
+                            },
+                            set: { newColor in
+                                // Show overlay preview when color changes (if not already shown)
+                                if !isColorPickerOpen {
+                                    print("🎨 Color picker interaction detected - showing overlay preview")
+                                    isColorPickerOpen = true
+                                    showOverlayPreview()
+                                }
+                                
+                                // Convert to RGB color space to ensure consistent component extraction
+                                let nsColor = NSColor(newColor)
+                                if let rgbColor = nsColor.usingColorSpace(.deviceRGB) {
+                                    overlayColorRed = Double(rgbColor.redComponent)
+                                    overlayColorGreen = Double(rgbColor.greenComponent)
+                                    overlayColorBlue = Double(rgbColor.blueComponent)
+                                    overlayColorAlpha = Double(rgbColor.alphaComponent)
+                                    
+                                    print("🎨 Color picker updated: R:\(overlayColorRed) G:\(overlayColorGreen) B:\(overlayColorBlue) A:\(overlayColorAlpha)")
+                                    
+                                    // Force save UserDefaults immediately to prevent loss on window close
+                                    UserDefaults.standard.synchronize()
                                 }
                             }
+                        ), supportsOpacity: true)
+                        .labelsHidden()
+                        .help("Choose the background color for the recording overlay")
+                        
+                        // Opacity slider also triggers preview
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text("Opacity")
+                                    .font(.caption)
+                                    .fontWeight(.medium)
+                                
+                                Spacer()
+                                
+                                Text("\(Int(overlayOpacity * 100))%")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            
+                            Slider(value: $overlayOpacity, in: 0.3...1.0)
+                                .help("Transparency level of the recording overlay")
+                                .onChange(of: overlayOpacity) { _, _ in
+                                    // Show preview when opacity changes
+                                    if !isColorPickerOpen {
+                                        print("🎨 Opacity changed - showing overlay preview")
+                                        isColorPickerOpen = true
+                                        showOverlayPreview()
+                                    }
+                                }
                         }
-                    ), supportsOpacity: true)
-                    .labelsHidden()
-                    .help("Choose the background color for the recording overlay")
+                        
+                        // Manual preview buttons (backup controls)
+                        HStack {
+                            Button(isColorPickerOpen ? "Hide Preview" : "Show Preview") {
+                                if isColorPickerOpen {
+                                    hideOverlayPreview()
+                                    isColorPickerOpen = false
+                                } else {
+                                    showOverlayPreview()
+                                    isColorPickerOpen = true
+                                }
+                            }
+                            .buttonStyle(.bordered)
+                            .help(isColorPickerOpen ? "Hide the overlay preview" : "Show overlay window to preview color changes")
+                            
+                            if isColorPickerOpen {
+                                Button("Close Preview") {
+                                    hideOverlayPreview()
+                                    isColorPickerOpen = false
+                                }
+                                .buttonStyle(.bordered)
+                                .foregroundColor(.red)
+                                .help("Close the overlay preview")
+                            }
+                        }
+                    }
                 }
             }
             .padding(.vertical, 4)
@@ -683,24 +1054,49 @@ struct SettingsView: View {
         }
     }
     
-    private func testAPIConnection() {
-        // Basic validation
-        guard !azureWhisperAPIKey.isEmpty else {
-            showingAPIKeyAlert = true
-            return
+    private func checkPermissions() {
+        hasAccessibilityPermission = AXIsProcessTrusted()
+        permissionManager.checkPermissionStatus()
+    }
+    
+    private func testWhisperConnection() {
+        if whisperProvider == "azure" {
+            // Basic validation
+            guard !azureWhisperAPIKey.isEmpty else {
+                showingAPIKeyAlert = true
+                return
+            }
+            
+            // TODO: Implement actual API test
+            print("Testing Azure Whisper API connection with endpoint: \(azureWhisperEndpoint)")
+            print("Using deployment: \(azureWhisperDeployment)")
+        } else {
+            // Basic validation
+            guard !openAIWhisperAPIKey.isEmpty else {
+                showingAPIKeyAlert = true
+                return
+            }
+            
+            // TODO: Implement actual API test
+            print("Testing OpenAI Whisper API connection with base URL: \(openAIWhisperBaseURL)")
+            print("Using model: \(openAIWhisperModel)")
         }
-        
-        // TODO: Implement actual API test
-        print("Testing Azure Whisper API connection with endpoint: \(azureWhisperEndpoint)")
-        print("Using deployment: \(azureWhisperDeployment)")
     }
     
     private func resetToDefaults() {
+        // Whisper provider
+        whisperProvider = "azure"
+        
         // Azure Whisper settings
         azureWhisperAPIKey = ""
         azureWhisperEndpoint = ""
         azureWhisperDeployment = "whisper"
         azureWhisperAPIVersion = "2024-08-01-preview"
+        
+        // OpenAI Whisper settings
+        openAIWhisperAPIKey = ""
+        openAIWhisperModel = "whisper-1"
+        openAIWhisperBaseURL = "https://api.openai.com/v1"
         
         // Azure OpenAI settings
         azureOpenAIAPIKey = ""
@@ -708,11 +1104,23 @@ struct SettingsView: View {
         azureOpenAIDeployment = "gpt-4o-mini"
         azureOpenAIAPIVersion = "2024-04-01-preview"
         
+        // Standard OpenAI settings
+        openAIAPIKey = ""
+        openAIModel = "gpt-4o-mini"
+        openAIBaseURL = "https://api.openai.com/v1"
+        openAIProvider = "azure"
+        
         // General settings
         isEnabled = true
         useTestMode = false
         overlayOpacity = 0.85
-        overlayPosition = "top-right"
+        overlayPosition = "center"
+        
+        // Reset overlay color settings to defaults
+        overlayColorRed = 0.2
+        overlayColorGreen = 0.3
+        overlayColorBlue = 0.5
+        overlayColorAlpha = 0.85
         
         // Reset transcript cleaner options
         removeFillerWords = true
@@ -795,6 +1203,22 @@ struct SettingsView: View {
     private func clearAllReplacements() {
         transcriptCleaner.clearWordReplacements()
         loadWordReplacements()
+    }
+    
+    // MARK: - Overlay Preview Methods
+    
+    private func showOverlayPreview() {
+        // Access the overlay window through AppDelegate
+        if let appDelegate = NSApp.delegate as? AppDelegate {
+            appDelegate.showOverlayPreview()
+        }
+    }
+    
+    private func hideOverlayPreview() {
+        // Access the overlay window through AppDelegate
+        if let appDelegate = NSApp.delegate as? AppDelegate {
+            appDelegate.hideOverlayPreview()
+        }
     }
 }
 

@@ -50,7 +50,7 @@ class OverlayWindow: NSObject {
     private var whisperClient = WhisperClient()
     private var levelUpdateTimer: Timer?
     private weak var hotkeyController: HotkeyController?
-    private var overlayLayer: CALayer? // Reference to overlay layer for color updates
+    private var visualEffectView: NSVisualEffectView? // Reference to visual effect view for updates
     
     // Tracking variable for hide task - used to cancel pending hide operations
     private var hideTask: Task<Void, Never>? = nil
@@ -88,61 +88,35 @@ class OverlayWindow: NSObject {
         window.ignoresMouseEvents = false // Enable mouse events so we can receive key events
         window.collectionBehavior = [.canJoinAllSpaces, .stationary]
         
-        // Position window in center of screen
-        if let screen = NSScreen.main {
-            let screenFrame = screen.visibleFrame
-            let windowFrame = window.frame
-            let x = screenFrame.midX - windowFrame.width / 2
-            let y = screenFrame.midY - windowFrame.height / 2
-            window.setFrameOrigin(NSPoint(x: x, y: y))
-        }
+        // Hide window initially - it should only be visible when recording
+        window.orderOut(nil)
         
-        // Apply user's overlay color and alpha from settings
-        let overlayColorRed = UserDefaults.standard.double(forKey: "OverlayColorRed")
-        let overlayColorGreen = UserDefaults.standard.double(forKey: "OverlayColorGreen") 
-        let overlayColorBlue = UserDefaults.standard.double(forKey: "OverlayColorBlue")
-        let overlayColorAlpha = UserDefaults.standard.double(forKey: "OverlayColorAlpha")
-        
-        // Use default values if not set (darker blue-gray for better visibility)
-        let red = overlayColorRed > 0 ? overlayColorRed : 0.2
-        let green = overlayColorGreen > 0 ? overlayColorGreen : 0.3
-        let blue = overlayColorBlue > 0 ? overlayColorBlue : 0.5
-        let alpha = overlayColorAlpha > 0 ? overlayColorAlpha : 0.85
+        // Position window based on user preference (but keep it hidden)
+        positionWindow()
         
         // Create visual effect view for glass effect
-        let visualEffectView = NSVisualEffectView()
-        // Temporarily disable material to force our custom color
-        // visualEffectView.material = .hudWindow"Oh, baby, is this working? I think it is."
-        // visualEffectView.blendingMode = .behindWindow
-        visualEffectView.blendingMode = .withinWindow  // Change blending mode
-        visualEffectView.state = .active
-        visualEffectView.wantsLayer = true
-        visualEffectView.layer?.cornerRadius = 20
+        let effectView = NSVisualEffectView()
+        effectView.blendingMode = .withinWindow
+        effectView.state = .active
+        effectView.wantsLayer = true
+        effectView.layer?.cornerRadius = 20
         
-        // Force background color directly on the visual effect view using settings
-        visualEffectView.layer?.backgroundColor = NSColor(red: red, green: green, blue: blue, alpha: alpha).cgColor
+        visualEffectView = effectView
+        window.contentView = effectView
         
-        // Create overlay with user's color
-        // overlayLayer = CALayer()
-        // overlayLayer?.backgroundColor = NSColor(red: red, green: green, blue: blue, alpha: alpha).cgColor
-        // overlayLayer?.cornerRadius = 20
-        // visualEffectView.layer?.insertSublayer(overlayLayer!, at: 0)
-        
-        // Set the visual effect view's alpha
-        visualEffectView.alphaValue = 1.0
-        
-        window.contentView = visualEffectView
+        // Apply initial color and opacity
+        updateOverlayColorAndOpacity()
         
         // Create container view for content
         let containerView = NSView()
         containerView.translatesAutoresizingMaskIntoConstraints = false
-        visualEffectView.addSubview(containerView)
+        effectView.addSubview(containerView)
         
         NSLayoutConstraint.activate([
-            containerView.topAnchor.constraint(equalTo: visualEffectView.topAnchor),
-            containerView.leadingAnchor.constraint(equalTo: visualEffectView.leadingAnchor),
-            containerView.trailingAnchor.constraint(equalTo: visualEffectView.trailingAnchor),
-            containerView.bottomAnchor.constraint(equalTo: visualEffectView.bottomAnchor)
+            containerView.topAnchor.constraint(equalTo: effectView.topAnchor),
+            containerView.leadingAnchor.constraint(equalTo: effectView.leadingAnchor),
+            containerView.trailingAnchor.constraint(equalTo: effectView.trailingAnchor),
+            containerView.bottomAnchor.constraint(equalTo: effectView.bottomAnchor)
         ])
         
         setupContentViews(in: containerView)
@@ -221,8 +195,8 @@ class OverlayWindow: NSObject {
         // Fully reset the overlay before showing
         resetOverlay()
         
-        // Update overlay color from current settings
-        updateOverlayColor()
+        // Update overlay color and opacity from current settings
+        updateOverlayColorAndOpacity()
         
         print("🎬 OverlayWindow: Showing recording overlay")
         
@@ -245,28 +219,29 @@ class OverlayWindow: NSObject {
             }
         }
         
-        // Reposition window to ensure it's centered on the current screen
-        if let screen = NSScreen.main {
-            let screenFrame = screen.visibleFrame
-            let windowFrame = window.frame
-            let x = screenFrame.midX - windowFrame.width / 2
-            let y = screenFrame.midY - windowFrame.height / 2
-            window.setFrameOrigin(NSPoint(x: x, y: y))
-        }
+        // Reposition window based on user preference on the current screen
+        positionWindow()
         
         // Ensure window is ready to show
         if window.isVisible {
+            print("🔄 Window was already visible, hiding first")
             window.orderOut(nil) // Hide first if already visible
         }
         
-        // Animate window appearance
+        // Set window properties to ensure visibility
+        window.level = .floating
         window.alphaValue = 0
         window.makeKeyAndOrderFront(nil)
         
+        print("🎬 Window made key and ordered front, starting fade-in animation")
+        
+        // Animate window appearance
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.15
             context.timingFunction = CAMediaTimingFunction(name: .easeOut)
             window.animator().alphaValue = 1.0
+        } completionHandler: {
+            print("✅ Overlay fade-in animation completed")
         }
     }
     
@@ -290,12 +265,36 @@ class OverlayWindow: NSObject {
         
         // Process the recorded audio - overlay will be hidden after processing completes
         transcriptionTask = Task {
-            await processRecordedAudio()
+            await processRecordedAudio(copyOnly: false)
+        }
+    }
+    
+    /// Stops recording and processes the audio in copy-only mode (no paste)
+    func stopRecordingCopyOnly() {
+        guard window != nil else { return }
+        
+        // Stop level update timer
+        levelUpdateTimer?.invalidate()
+        levelUpdateTimer = nil
+        
+        // Stop recording
+        recorder.stopRecording()
+        waveView?.setRecording(false)
+        
+        // Switch to thinking mode
+        waveView?.isHidden = true
+        thinkingView?.isHidden = false
+        thinkingView?.startAnimating()
+        errorLabel?.isHidden = true
+        
+        // Process the recorded audio in copy-only mode
+        transcriptionTask = Task {
+            await processRecordedAudio(copyOnly: true)
         }
     }
     
     /// Processes recorded audio through Whisper API and handles text output
-    private func processRecordedAudio() async {
+    private func processRecordedAudio(copyOnly: Bool = false) async {
         guard let recordingURL = recorder.getRecordingURL() else { 
             showError("No recording found")
             hideOverlayAfterDelay(seconds: 10) // Keep error visible for 10 seconds
@@ -336,18 +335,18 @@ class OverlayWindow: NSObject {
             var cleanedText: String
             if useAzureOpenAI {
                 do {
-                    // Use Azure OpenAI for advanced transcript enhancement
-                    print("🤖 Enhancing transcript with Azure OpenAI...")
-                    cleanedText = try await cleaner.enhanceWithAzureOpenAI(transcript)
-                    print("✅ Successfully enhanced transcript with Azure OpenAI")
+                    // Use OpenAI for advanced transcript enhancement
+                    print("🤖 Enhancing transcript with OpenAI...")
+                    cleanedText = try await cleaner.enhanceWithOpenAI(transcript)
+                    print("✅ Successfully enhanced transcript with OpenAI")
                 } catch {
-                    print("⚠️ Azure OpenAI enhancement failed: \(error.localizedDescription)")
+                    print("⚠️ OpenAI enhancement failed: \(error.localizedDescription)")
                     print("🔄 Falling back to local processing")
                     cleanedText = cleaner.cleanTranscript(transcript)
                 }
             } else {
                 // Use local processing
-                print("📝 Using local transcript cleaning (Azure OpenAI disabled)")
+                print("📝 Using local transcript cleaning (OpenAI disabled)")
                 cleanedText = cleaner.cleanTranscript(transcript)
             }
             
@@ -364,11 +363,15 @@ class OverlayWindow: NSObject {
                 return
             }
             
-            // Paste the result immediately if successful
-            await pasteText(cleanedText)
-            
-            // Hide overlay after successful paste with short delay for feedback
-            hideOverlayAfterDelay(seconds: 0.5)
+            // Either paste or copy based on mode
+            if copyOnly {
+                await copyTextToClipboard(cleanedText)
+                showMessage("Copied to clipboard", color: .systemGreen) // Show success message
+                hideOverlayAfterDelay(seconds: 1.5) // Show confirmation longer
+            } else {
+                await pasteText(cleanedText)
+                hideOverlayAfterDelay(seconds: 0.5) // Hide quickly after paste
+            }
             
             // Clear the transcription task reference
             self.transcriptionTask = nil
@@ -415,32 +418,37 @@ class OverlayWindow: NSObject {
         return options
     }
     
-    /// Shows an error message in the overlay with red text and animation
-    private func showError(_ message: String) {
+    /// Shows a message in the overlay with specified color and animation
+    private func showMessage(_ message: String, color: NSColor = .red) {
         waveView?.isHidden = true
         thinkingView?.isHidden = true
         thinkingView?.stopAnimating()
         
-        // Configure error display
+        // Configure message display
         errorLabel?.stringValue = message
-        errorLabel?.textColor = NSColor.red
+        errorLabel?.textColor = color
         errorLabel?.font = NSFont.systemFont(ofSize: 13, weight: .semibold)
         errorLabel?.isHidden = false
         
         // Add attention-grabbing animation
-        if let errorView = errorLabel {
+        if let messageView = errorLabel {
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = 0.3
                 context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-                errorView.animator().alphaValue = 0.5
+                messageView.animator().alphaValue = 0.5
             } completionHandler: {
                 NSAnimationContext.runAnimationGroup { context in
                     context.duration = 0.3
                     context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-                    errorView.animator().alphaValue = 1.0
+                    messageView.animator().alphaValue = 1.0
                 }
             }
         }
+    }
+    
+    /// Shows an error message in the overlay with red text and animation
+    private func showError(_ message: String) {
+        showMessage(message, color: .red)
     }
     
     /// Hides the overlay with a smooth fade-out animation
@@ -526,6 +534,18 @@ class OverlayWindow: NSObject {
         }
     }
     
+    /// Copies text to clipboard only (no paste)
+    private func copyTextToClipboard(_ text: String) async {
+        guard !text.isEmpty else { return }
+        
+        // Store text in pasteboard
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
+        
+        print("📋 Copied text to clipboard: \(text)")
+    }
+    
     /// Pastes text into the currently focused application
     private func pasteText(_ text: String) async {
         guard !text.isEmpty else { return }
@@ -549,6 +569,38 @@ class OverlayWindow: NSObject {
         
         cmdVDown?.post(tap: .cghidEventTap)
         cmdVUp?.post(tap: .cghidEventTap)
+    }
+    
+    /// Forces the overlay to hide immediately (useful for debugging stuck overlays)
+    func forceHide() {
+        guard let window = window else { return }
+        
+        print("🚨 OverlayWindow: Force hiding overlay (emergency reset)")
+        
+        // Cancel all tasks
+        cancelPendingHideTasks()
+        transcriptionTask?.cancel()
+        transcriptionTask = nil
+        
+        // Stop any timers
+        levelUpdateTimer?.invalidate()
+        levelUpdateTimer = nil
+        
+        // Stop recording if active
+        if recorder.isRecording {
+            recorder.stopRecording()
+        }
+        
+        // Hide window immediately
+        window.orderOut(nil)
+        
+        // Reset state
+        resetOverlay()
+        
+        // Reset hotkey controller
+        hotkeyController?.resetRecordingState()
+        
+        print("✅ OverlayWindow: Force hide complete")
     }
     
     /// Resets the overlay window to its initial state
@@ -587,24 +639,38 @@ class OverlayWindow: NSObject {
         print("🔄 OverlayWindow: Reset complete - window ready for reuse")
     }
     
-    /// Updates the overlay background color from user settings
-    func updateOverlayColor() {
-        guard let overlayLayer = overlayLayer else { return }
+    /// Updates the overlay background color and opacity from user settings
+    private func updateOverlayColorAndOpacity() {
+        guard let visualEffectView = visualEffectView else { return }
         
         // Get color values from settings
         let overlayColorRed = UserDefaults.standard.double(forKey: "OverlayColorRed")
         let overlayColorGreen = UserDefaults.standard.double(forKey: "OverlayColorGreen") 
         let overlayColorBlue = UserDefaults.standard.double(forKey: "OverlayColorBlue")
         let overlayColorAlpha = UserDefaults.standard.double(forKey: "OverlayColorAlpha")
+        let overlayOpacity = UserDefaults.standard.double(forKey: "OverlayOpacity")
+        
+        // Check if values are set (UserDefaults returns 0.0 for unset doubles)
+        // We need to check if any values have been explicitly set
+        let hasColorSettings = UserDefaults.standard.object(forKey: "OverlayColorRed") != nil
         
         // Use default values if not set (darker blue-gray for better visibility)
-        let red = overlayColorRed > 0 ? overlayColorRed : 0.2
-        let green = overlayColorGreen > 0 ? overlayColorGreen : 0.3
-        let blue = overlayColorBlue > 0 ? overlayColorBlue : 0.5
-        let alpha = overlayColorAlpha > 0 ? overlayColorAlpha : 0.85
+        let red = hasColorSettings ? overlayColorRed : 0.2
+        let green = hasColorSettings ? overlayColorGreen : 0.3
+        let blue = hasColorSettings ? overlayColorBlue : 0.5
+        let alpha = hasColorSettings ? overlayColorAlpha : 0.85
+        let opacity = overlayOpacity > 0 ? overlayOpacity : 0.85
         
-        // Update the layer's background color
-        overlayLayer.backgroundColor = NSColor(red: red, green: green, blue: blue, alpha: alpha).cgColor
+        // Update the background color and opacity
+        visualEffectView.layer?.backgroundColor = NSColor(red: red, green: green, blue: blue, alpha: alpha).cgColor
+        visualEffectView.alphaValue = opacity
+        
+        print("🎨 Updated overlay color: R:\(red) G:\(green) B:\(blue) A:\(alpha) Opacity:\(opacity)")
+    }
+    
+    /// Legacy method for backward compatibility - now calls the new method
+    func updateOverlayColor() {
+        updateOverlayColorAndOpacity()
     }
 
     /// Sets up observer for UserDefaults changes to update overlay color live
@@ -618,15 +684,148 @@ class OverlayWindow: NSObject {
         )
     }
     
-    /// Called when UserDefaults values change - updates overlay color if needed
+    /// Called when UserDefaults values change - updates overlay appearance if needed
     @objc private func userDefaultsDidChange() {
         // Update overlay color when settings change
         updateOverlayColor()
+        
+        // Update position when position setting changes
+        positionWindow()
+    }
+    
+    /// Positions the overlay window based on user preference
+    private func positionWindow() {
+        guard let window = window, let screen = NSScreen.main else { 
+            print("❌ OverlayWindow: Cannot position - window or screen is nil")
+            return 
+        }
+        
+        let overlayPosition = UserDefaults.standard.string(forKey: "OverlayPosition") ?? "center"
+        let screenFrame = screen.visibleFrame
+        let windowFrame = window.frame
+        let margin: CGFloat = 50 // Distance from screen edges
+        
+        print("🖥️ Screen frame: \(screenFrame)")
+        print("🪟 Window frame: \(windowFrame)")
+        print("📍 Requested position: \(overlayPosition)")
+        
+        let x: CGFloat
+        let y: CGFloat
+        
+        switch overlayPosition {
+        case "top-left":
+            x = screenFrame.minX + margin
+            y = screenFrame.maxY - windowFrame.height - margin
+        case "top-right":
+            x = screenFrame.maxX - windowFrame.width - margin
+            y = screenFrame.maxY - windowFrame.height - margin
+        case "bottom-left":
+            x = screenFrame.minX + margin
+            y = screenFrame.minY + margin
+        case "bottom-right":
+            x = screenFrame.maxX - windowFrame.width - margin
+            y = screenFrame.minY + margin
+        case "center":
+            x = screenFrame.midX - windowFrame.width / 2
+            y = screenFrame.midY - windowFrame.height / 2
+        default: // fallback to center
+            print("⚠️ Unknown position '\(overlayPosition)', using center")
+            x = screenFrame.midX - windowFrame.width / 2
+            y = screenFrame.midY - windowFrame.height / 2
+        }
+        
+        // Ensure the window stays within screen bounds
+        let clampedX = max(screenFrame.minX, min(x, screenFrame.maxX - windowFrame.width))
+        let clampedY = max(screenFrame.minY, min(y, screenFrame.maxY - windowFrame.height))
+        
+        print("🎯 Calculated position: (\(x), \(y)) -> Clamped: (\(clampedX), \(clampedY))")
+        
+        window.setFrameOrigin(NSPoint(x: clampedX, y: clampedY))
+        
+        // Set window level but don't make it visible - only showRecording() should do that
+        window.level = .floating
+        
+        print("✅ Positioned overlay at \(overlayPosition): (\(clampedX), \(clampedY)) on screen \(screenFrame)")
     }
     
     deinit {
         // Remove observer to prevent memory leaks
         NotificationCenter.default.removeObserver(self)
+    }
+    
+    /// Shows the overlay for preview purposes (without recording functionality)
+    func showPreview() {
+        guard let window = window else { 
+            print("❌ OverlayWindow: Cannot show preview - window is nil")
+            return 
+        }
+        
+        print("🎨 OverlayWindow: Showing overlay for color preview")
+        
+        // Cancel any pending hide operations
+        cancelPendingHideTasks()
+        
+        // Reset the overlay to clean state
+        resetOverlay()
+        
+        // Update overlay color and opacity from current settings
+        updateOverlayColorAndOpacity()
+        
+        // Show a preview message instead of recording UI
+        waveView?.isHidden = true
+        thinkingView?.isHidden = true
+        errorLabel?.stringValue = "Color Preview"
+        errorLabel?.textColor = .white
+        errorLabel?.font = NSFont.systemFont(ofSize: 14, weight: .medium)
+        errorLabel?.isHidden = false
+        
+        print("🎨 OverlayWindow: Set up preview UI elements")
+        
+        // Position window based on user preference
+        positionWindow()
+        
+        // Ensure window is ready to show
+        if window.isVisible {
+            print("🔄 Preview window was already visible, hiding first")
+            window.orderOut(nil) // Hide first if already visible
+        }
+        
+        // Set window properties to ensure visibility
+        window.level = .floating
+        window.alphaValue = 0
+        window.makeKeyAndOrderFront(nil)
+        
+        print("🎨 Window made key and ordered front for preview, starting fade-in animation")
+        
+        // Animate window appearance
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.15
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            window.animator().alphaValue = 1.0
+        } completionHandler: {
+            print("✅ Overlay preview shown successfully")
+        }
+    }
+    
+    /// Hides the overlay preview
+    func hidePreview() {
+        guard let window = window, window.isVisible else { return }
+        
+        print("🎨 OverlayWindow: Hiding overlay preview")
+        
+        // Fade out with smooth animation
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.15
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            window.animator().alphaValue = 0
+        } completionHandler: {
+            // Remove window from screen after animation completes
+            window.orderOut(nil)
+            
+            // Reset overlay state
+            self.resetOverlay()
+            print("✅ Overlay preview hidden")
+        }
     }
     
     /// Handles escape key press to cancel current operation and hide overlay
@@ -669,7 +868,7 @@ class OverlayWindow: NSObject {
         } else {
             print("🛑 OverlayWindow: Closing overlay")
             
-            // Hide immediately if no active operation
+            // Hide immediately if no active operation (including preview mode)
             hideOverlay()
         }
         
