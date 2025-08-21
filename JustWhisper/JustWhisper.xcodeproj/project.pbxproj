@@ -24,7 +24,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		F4412EB02E00CAC6002E6AF4 /* JustWhisper.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = JustWhisper.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		F4412EB02E00CAC6002E6AF4 /* Just Whisper Debug.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Just Whisper Debug.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		F4412EC12E00CAC8002E6AF4 /* JustWhisperTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = JustWhisperTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		F4412ECB2E00CAC8002E6AF4 /* JustWhisperUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = JustWhisperUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -85,7 +85,7 @@
 		F4412EB12E00CAC6002E6AF4 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				F4412EB02E00CAC6002E6AF4 /* JustWhisper.app */,
+				F4412EB02E00CAC6002E6AF4 /* Just Whisper Debug.app */,
 				F4412EC12E00CAC8002E6AF4 /* JustWhisperTests.xctest */,
 				F4412ECB2E00CAC8002E6AF4 /* JustWhisperUITests.xctest */,
 			);
@@ -114,7 +114,7 @@
 			packageProductDependencies = (
 			);
 			productName = JustWhisper;
-			productReference = F4412EB02E00CAC6002E6AF4 /* JustWhisper.app */;
+			productReference = F4412EB02E00CAC6002E6AF4 /* Just Whisper Debug.app */;
 			productType = "com.apple.product-type.application";
 		};
 		F4412EC02E00CAC8002E6AF4 /* JustWhisperTests */ = {
@@ -414,7 +414,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.2;
-				MARKETING_VERSION = 1.1;
+				MARKETING_VERSION = 1.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.nerdevs.justWhisper.debug;
 				PRODUCT_NAME = "Just Whisper Debug";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -447,7 +447,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.2;
-				MARKETING_VERSION = 1.1;
+				MARKETING_VERSION = 1.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.nerdevs.justWhisper;
 				PRODUCT_NAME = "Just Whisper";
 				SWIFT_EMIT_LOC_STRINGS = YES;
