@@ -133,11 +133,11 @@ Choose between Azure OpenAI or standard OpenAI for enhanced transcript processin
 
 ## Keyboard Shortcuts
 
-| Key                           | Action                                    |
-| ----------------------------- | ----------------------------------------- |
-| **Fn**                        | Start/Stop recording with auto-paste      |
-| **Ctrl** (during recording)   | Stop recording and copy to clipboard only |
-| **Escape** (during recording) | Cancel recording                          |
+| Key                           | Action                                            |
+| ----------------------------- | ------------------------------------------------- |
+| **Fn**                        | Start/Stop recording with GPT-enhanced auto-paste |
+| **Ctrl** (during recording)   | Stop recording and paste without GPT enhancement  |
+| **Escape** (during recording) | Cancel recording                                  |
 
 ## Troubleshooting
 

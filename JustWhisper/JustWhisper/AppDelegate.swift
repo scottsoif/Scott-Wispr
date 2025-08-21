@@ -86,6 +86,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         hotkeyController?.onCopyOnlyPress = { [weak self] in
             self?.stopRecordingCopyOnly()
         }
+        hotkeyController?.onNoGPTPastePress = { [weak self] in
+            self?.stopRecordingNoGPTPaste()
+        }
         hotkeyController?.onEscapePress = { [weak self] in
             self?.cancelRecording()
         }
@@ -131,6 +134,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         overlayWindow?.stopRecordingCopyOnly()
     }
     
+    /// Stops recording and processes the audio with no GPT enhancement, then pastes
+    private func stopRecordingNoGPTPaste() {
+        overlayWindow?.stopRecording(noGPT: true)
+    }
+    
     /// Cancels current recording and hides overlay
     private func cancelRecording() {
         print("🛑 AppDelegate: Canceling recording via Escape key")
@@ -152,11 +160,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     /// Shows the overlay for color preview (without recording)
     func showOverlayPreview() {
         print("🎨 AppDelegate: Showing overlay preview for color adjustment")
-        guard let overlayWindow = overlayWindow else {
-            print("❌ AppDelegate: Cannot show preview - overlayWindow is nil")
-            return
+        // Ensure overlay exists
+        if overlayWindow == nil {
+            print("ℹ️ AppDelegate: overlayWindow was nil, creating a new instance for preview")
+            overlayWindow = OverlayWindow(hotkeyController: hotkeyController)
         }
-        overlayWindow.showPreview()
+        // Activate app and bring overlay to front
+        NSApp.activate(ignoringOtherApps: true)
+        overlayWindow?.showPreview()
     }
     
     /// Hides the overlay preview

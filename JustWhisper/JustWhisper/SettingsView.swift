@@ -752,6 +752,14 @@ struct SettingsView: View {
                     }
                     .pickerStyle(.menu)
                     .help("Position of the recording overlay on screen")
+                    .onChange(of: overlayPosition) { _, _ in
+                        // Show overlay preview when position changes
+                        if !isColorPickerOpen {
+                            print("📍 Position changed - showing overlay preview")
+                            isColorPickerOpen = true
+                            showOverlayPreview()
+                        }
+                    }
                 }
                 
 

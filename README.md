@@ -6,8 +6,8 @@ A macOS menu bar application that provides voice-to-text transcription using Azu
 
 ### Global Hotkey System
 
-- **Fn Key**: Start/stop recording with automatic text pasting
-- **Ctrl Key**: Stop recording and copy to clipboard (no paste)
+- **Fn Key**: Start/stop recording with GPT-enhanced auto-paste
+- **Ctrl Key**: Stop recording and paste without GPT enhancement
 - **Escape Key**: Cancel recording at any time
 - Uses low-level `CGEventTap` for system-wide detection
 - Requires accessibility permissions for global functionality
@@ -55,12 +55,14 @@ A macOS menu bar application that provides voice-to-text transcription using Azu
 1. **Install**: Place JustWhisper.app in Applications folder
 2. **Launch**: App appears in menu bar with microphone icon
 3. **Configure API**: Open Settings → Azure Whisper API:
+
    - API Key
    - Endpoint URL (e.g., `https://your-resource.openai.azure.com/`)
    - Deployment name (usually `whisper`)
    - API Version (e.g., `2024-08-01-preview`)
 
-4. **Grant Permissions**: 
+4. **Grant Permissions**:
+
    - **Microphone**: Required for audio recording
    - **Accessibility**: Required for global hotkeys and text pasting
 
@@ -70,27 +72,30 @@ A macOS menu bar application that provides voice-to-text transcription using Azu
 
 ### Keyboard Shortcuts
 
-| Key | Action |
-|-----|--------|
-| **Fn** | Start/Stop recording with auto-paste |
-| **Ctrl** (during recording) | Stop recording and copy to clipboard only |
-| **Escape** (during recording) | Cancel recording |
+| Key                           | Action                                    |
+| ----------------------------- | ----------------------------------------- |
+| **Fn**                        | Start/Stop recording with auto-paste      |
+| **Ctrl** (during recording)   | Stop recording and copy to clipboard only |
+| **Escape** (during recording) | Cancel recording                          |
 
 ### Recording Modes
 
 **Standard Mode (Auto-Paste)**
+
 1. Press **Fn key** to start recording
 2. Speak your text
 3. Press **Fn key** again to stop
 4. Text automatically pastes into focused application
 
 **Copy-Only Mode**
+
 1. Press **Fn key** to start recording
 2. Speak your text
 3. Press **Ctrl key** to stop and copy to clipboard
 4. Green "Copied to clipboard" confirmation appears
 
 **Cancel Recording**
+
 - Press **Escape** anytime during recording to cancel
 
 ### Menu Bar Interface
@@ -112,11 +117,13 @@ A macOS menu bar application that provides voice-to-text transcription using Azu
 ### API Configuration
 
 **Azure Whisper (Required)**
+
 - API Key, Endpoint, Deployment name, API Version
 - Connection testing available
 
 **OpenAI Enhancement (Optional)**
 Choose between:
+
 - **Azure OpenAI**: API Key, Endpoint, Deployment, API Version
 - **Standard OpenAI**: API Key, Model (gpt-4o-mini), Base URL
 
@@ -139,6 +146,7 @@ Choose between:
 ### Recording Issues
 
 1. **No Audio Input**
+
    - Check microphone selection in settings
    - Try different input device (Built-in vs AirPods)
    - Verify microphone permissions
@@ -151,6 +159,7 @@ Choose between:
 ### Hotkey Issues
 
 1. **Global Keys Not Working**
+
    - Verify accessibility permissions in System Preferences
    - Toggle JustWhisper enabled/disabled in settings
    - Check conflicting apps using same keys
@@ -163,6 +172,7 @@ Choose between:
 ### Overlay Issues
 
 1. **Position Not Updating**
+
    - Settings now update immediately
    - Try different position options
    - Check for multiple displays
@@ -175,6 +185,7 @@ Choose between:
 ### API & Transcription
 
 1. **Poor Quality**
+
    - Check microphone quality and positioning
    - Enable AI enhancement in settings
    - Record in quiet environment
@@ -249,6 +260,7 @@ JustWhisper/
 ## Contributing
 
 When contributing:
+
 1. Follow existing Swift coding conventions
 2. Test with multiple microphone types
 3. Verify accessibility permissions work
@@ -262,6 +274,7 @@ See LICENSE file for details.
 ## Support
 
 For issues or questions:
+
 1. Check this README for troubleshooting steps
 2. Verify system permissions in macOS Settings
 3. Test with different microphone devices

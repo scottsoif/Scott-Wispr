@@ -265,7 +265,31 @@ class OverlayWindow: NSObject {
         
         // Process the recorded audio - overlay will be hidden after processing completes
         transcriptionTask = Task {
-            await processRecordedAudio(copyOnly: false)
+            await processRecordedAudio(copyOnly: false, noGPT: false)
+        }
+    }
+    
+    /// Stops recording and processes the audio with optional no-GPT enhancement flag
+    func stopRecording(noGPT: Bool) {
+        guard window != nil else { return }
+        
+        // Stop level update timer
+        levelUpdateTimer?.invalidate()
+        levelUpdateTimer = nil
+        
+        // Stop recording
+        recorder.stopRecording()
+        waveView?.setRecording(false)
+        
+        // Switch to thinking mode
+        waveView?.isHidden = true
+        thinkingView?.isHidden = false
+        thinkingView?.startAnimating()
+        errorLabel?.isHidden = true
+        
+        // Process the recorded audio with the no-GPT option
+        transcriptionTask = Task {
+            await processRecordedAudio(copyOnly: false, noGPT: noGPT)
         }
     }
     
@@ -294,7 +318,7 @@ class OverlayWindow: NSObject {
     }
     
     /// Processes recorded audio through Whisper API and handles text output
-    private func processRecordedAudio(copyOnly: Bool = false) async {
+    private func processRecordedAudio(copyOnly: Bool = false, noGPT: Bool = false) async {
         guard let recordingURL = recorder.getRecordingURL() else { 
             showError("No recording found")
             hideOverlayAfterDelay(seconds: 10) // Keep error visible for 10 seconds
@@ -329,11 +353,12 @@ class OverlayWindow: NSObject {
             // Create transcript cleaner with user settings
             let cleaner = TranscriptCleaner(options: getCurrentTranscriptOptions())
             
-            // Check if Azure OpenAI is enabled in settings
+            // Check if Azure OpenAI is enabled in settings and not overridden by noGPT
             let useAzureOpenAI = UserDefaults.standard.bool(forKey: "UseAzureOpenAI")
+            let shouldUseOpenAI = useAzureOpenAI && !noGPT
             
             var cleanedText: String
-            if useAzureOpenAI {
+            if shouldUseOpenAI {
                 do {
                     // Use OpenAI for advanced transcript enhancement
                     print("🤖 Enhancing transcript with OpenAI...")
@@ -346,7 +371,7 @@ class OverlayWindow: NSObject {
                 }
             } else {
                 // Use local processing
-                print("📝 Using local transcript cleaning (OpenAI disabled)")
+                print("📝 Using local transcript cleaning (OpenAI disabled or no-GPT mode)")
                 cleanedText = cleaner.cleanTranscript(transcript)
             }
             
@@ -794,6 +819,8 @@ class OverlayWindow: NSObject {
         window.level = .floating
         window.alphaValue = 0
         window.makeKeyAndOrderFront(nil)
+        window.orderFrontRegardless()
+        NSApplication.shared.activate(ignoringOtherApps: true)
         
         print("🎨 Window made key and ordered front for preview, starting fade-in animation")
         

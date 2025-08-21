@@ -35,6 +35,9 @@ class HotkeyController: ObservableObject {
     /// Callback triggered when Ctrl key is pressed during recording (copy-only mode)
     var onCopyOnlyPress: (() -> Void)?
     
+    /// Callback triggered when Ctrl key is pressed during recording to paste without GPT
+    var onNoGPTPastePress: (() -> Void)?
+    
     /// Callback triggered when Escape key is pressed to cancel recording
     var onEscapePress: (() -> Void)?
     
@@ -142,8 +145,8 @@ class HotkeyController: ObservableObject {
         
         print("✅ HotkeyController: Starting global hotkey listener with accessibility permissions")
         
-        // Create event tap for key down and key up events
-        let eventMask = (1 << CGEventType.keyDown.rawValue) | (1 << CGEventType.keyUp.rawValue)
+        // Create event tap for key down, key up, and modifier flag changes
+        let eventMask = (1 << CGEventType.keyDown.rawValue) | (1 << CGEventType.keyUp.rawValue) | (1 << CGEventType.flagsChanged.rawValue)
         
         eventTap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
@@ -204,6 +207,19 @@ class HotkeyController: ObservableObject {
         }
 
         let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
+        
+        // Handle modifier-only Control presses via flagsChanged (no keyDown is generated)
+        if type == .flagsChanged {
+            let isControlPressed = event.flags.contains(.maskControl)
+            if isControlPressed && isRecording {
+                print("⚡ HotkeyController: Ctrl flagsChanged (pressed) - no-GPT paste")
+                Task { @MainActor in
+                    onNoGPTPastePress?()
+                    isRecording = false
+                }
+                return nil
+            }
+        }
 
         // Handle Fn key for recording toggle
         if keyCode == fnKeyCode {
@@ -232,16 +248,15 @@ class HotkeyController: ObservableObject {
                 break
             }
         }
-        // Handle Ctrl key for copy-only mode (only when recording)
+        // Handle Ctrl key for no-GPT paste mode (only when recording)
         else if keyCode == ctrlKeyCode && isRecording {
             switch type {
             case .keyDown:
-                print("📋 HotkeyController: Ctrl pressed - copy-only mode")
+                print("⚡ HotkeyController: Ctrl keyDown - no-GPT paste")
                 Task { @MainActor in
-                    onCopyOnlyPress?()
-                    isRecording = false // Stop recording after copy-only
+                    onNoGPTPastePress?()
+                    isRecording = false // Stop recording after action
                 }
-                // Don't pass this event through to prevent normal Ctrl behavior
                 return nil
             default:
                 break
