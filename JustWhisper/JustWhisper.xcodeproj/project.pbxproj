@@ -441,7 +441,7 @@
 				INFOPLIST_KEY_LSMinimumSystemVersion = 13.0;
 				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "JustWhisper needs microphone access to record audio for transcription.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "JustWhisper needs microphone access to record and process your voice for audio transcription. Your recordings are stored locally and never shared.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",

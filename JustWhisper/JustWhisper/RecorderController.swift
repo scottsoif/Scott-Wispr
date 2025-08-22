@@ -125,8 +125,12 @@ class RecorderController: NSObject, AudioRecorderProtocol {
             try? FileManager.default.removeItem(at: url)
         }
         
-        // Setup recording format
-        let recordingFormat = inputNode.outputFormat(forBus: 0)
+        // Setup recording format - use hardware format to avoid sample rate mismatch
+        let hardwareFormat = inputNode.inputFormat(forBus: 0)
+        let recordingFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, 
+                                          sampleRate: hardwareFormat.sampleRate, 
+                                          channels: hardwareFormat.channelCount, 
+                                          interleaved: false) ?? hardwareFormat
         
         // Create audio file
         recordingFile = try AVAudioFile(forWriting: recordingURL!, settings: recordingFormat.settings)
@@ -163,8 +167,77 @@ class RecorderController: NSObject, AudioRecorderProtocol {
             }
         }
         
-        // Start engine
-        try audioEngine.start()
+        // Start engine with retry logic for device switching
+        do {
+            try audioEngine.start()
+        } catch {
+            print("⚠️ Failed to start audio engine, attempting device recovery...")
+            
+            // If starting fails (common with AirPods), try fallback to default device
+            if selectedDevice != AudioDevice.default {
+                print("🔄 Switching to default device and retrying...")
+                
+                // Clean up current engine
+                audioEngine.stop()
+                audioEngine = nil
+                inputNode = nil
+                
+                // Switch to default device
+                let previousDevice = selectedDevice
+                selectedDevice = AudioDevice.default
+                
+                // Setup new engine with default device
+                setupAudioEngine()
+                
+                // Recreate recording file with new format
+                let newRecordingFormat = inputNode.inputFormat(forBus: 0)
+                let newFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, 
+                                            sampleRate: newRecordingFormat.sampleRate, 
+                                            channels: newRecordingFormat.channelCount, 
+                                            interleaved: false) ?? newRecordingFormat
+                
+                recordingFile = try AVAudioFile(forWriting: recordingURL!, settings: newFormat.settings)
+                
+                // Install tap with new format
+                inputNode.installTap(onBus: 0, bufferSize: 1024, format: newFormat) { [weak self] buffer, _ in
+                    guard let self = self, let file = self.recordingFile else { return }
+                    
+                    // Write to file
+                    do {
+                        try file.write(from: buffer)
+                    } catch {
+                        print("Failed to write audio buffer: \(error)")
+                    }
+                    
+                    // Calculate audio level
+                    let channelData = buffer.floatChannelData?[0]
+                    let frameLength = Int(buffer.frameLength)
+                    var sum: Float = 0.0
+                    
+                    if let channelData = channelData {
+                        for i in 0..<frameLength {
+                            let sample = channelData[i]
+                            sum += sample * sample
+                        }
+                    }
+                    
+                    let rms = sqrt(sum / Float(frameLength))
+                    let avgPower = 20 * log10(rms)
+                    let normalizedLevel = max(0.0, min(1.0, (avgPower + 80.0) / 80.0))
+                    
+                    DispatchQueue.main.async {
+                        self.audioLevel = normalizedLevel
+                    }
+                }
+                
+                // Try starting again with default device
+                try audioEngine.start()
+                print("✅ Successfully recovered using default device (was trying: \(previousDevice.name))")
+            } else {
+                // Already using default device, re-throw the error
+                throw error
+            }
+        }
         
         // Start timer for duration
         startTime = Date()
@@ -361,6 +434,12 @@ class RecorderController: NSObject, AudioRecorderProtocol {
         // For non-default devices, set system preference if possible
         if device != AudioDevice.default {
             try setSystemInputDevice(device)
+            
+            // Give AirPods and other wireless devices time to become ready
+            if device.name.contains("AirPods") || device.name.contains("Bluetooth") {
+                print("⏳ Waiting for wireless device to become ready...")
+                Thread.sleep(forTimeInterval: 0.5)
+            }
         }
         
         // Setup with new device - setupAudioEngine will be called when needed
