@@ -671,7 +671,7 @@ extension TranscriptCleaner {
             print("Azure OpenAI configuration not found, using local processing")
             return cleanTranscript(text)
         }
-        
+
         // Create system prompt with instructions
         let systemPrompt = """
         You are an AI assistant that improves transcribed speech. Follow these rules:
@@ -679,9 +679,17 @@ extension TranscriptCleaner {
         2. Fix grammar and punctuation
         3. Maintain the speaker's original meaning and intent
         4. Format properly with paragraphs where appropriate
-        5. Process any explicit formatting commands like "new line", "bullet point", etc.
+        5. Process voice formatting commands by replacing them with the actual formatting (including phonetically similar variations):
+           - "comma" or "kamma" or "coma" → ,
+           - "period" or "full stop" → .
+           - "question mark" → ?
+           - "exclamation point" or "exclamation mark" → !
+           - "new line" or "newline" or "return" or "enter" → actual line break
+           - "bullet point" or "bullet" or "bullitt" → new line with bullet (• )
+           - "colon" → :
+           - "semicolon" or "semi colon" → ;
         6. If the speaker corrects themselves, only keep the correction
-        
+
         Return only the improved text with no explanations or other content.
         """
         
@@ -770,12 +778,20 @@ extension TranscriptCleaner {
         2. Fix grammar and punctuation
         3. Maintain the speaker's original meaning and intent
         4. Format properly with paragraphs where appropriate
-        5. Process any explicit formatting commands like "new line", "bullet point", etc.
+        5. Process voice formatting commands by replacing them with the actual formatting (including phonetically similar variations):
+           - "comma" or "kamma" or "coma" → ,
+           - "period" or "full stop" → .
+           - "question mark" → ?
+           - "exclamation point" or "exclamation mark" → !
+           - "new line" or "newline" or "return" or "enter" → actual line break
+           - "bullet point" or "bullet" or "bullitt" → new line with bullet (• )
+           - "colon" → :
+           - "semicolon" or "semi colon" → ;
         6. If the speaker corrects themselves, only keep the correction
-        
+
         Return only the improved text with no explanations or other content.
         """
-        
+
         // Create API request URL
         let requestURL = "\(config.baseURL)/chat/completions"
         
