@@ -396,7 +396,7 @@
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_ASSET_PATHS = "\"JustWhisper/Preview Content\"";
 				DEVELOPMENT_TEAM = 24HUU63Z52;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -414,7 +414,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.2;
-				MARKETING_VERSION = 1.2;
+				MARKETING_VERSION = 2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.nerdevs.justWhisper.debug;
 				PRODUCT_NAME = "Just Whisper Debug";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -431,7 +431,7 @@
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_ASSET_PATHS = "\"JustWhisper/Preview Content\"";
 				DEVELOPMENT_TEAM = 24HUU63Z52;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -447,7 +447,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.2;
-				MARKETING_VERSION = 1.2;
+				MARKETING_VERSION = 2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.nerdevs.justWhisper;
 				PRODUCT_NAME = "Just Whisper";
 				SWIFT_EMIT_LOC_STRINGS = YES;
