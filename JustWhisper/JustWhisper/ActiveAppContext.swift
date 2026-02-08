@@ -248,8 +248,27 @@ class ActiveAppContext {
         return .other
     }
 
+    /// Fast version that only captures app name, category, and window title (no filesystem/git).
+    /// Use this on the main thread so recording can start immediately.
+    static func buildPromptContextFast() -> String? {
+        guard let frontApp = NSWorkspace.shared.frontmostApplication else { return nil }
+
+        let appName = frontApp.localizedName ?? "Unknown"
+        let pid = frontApp.processIdentifier
+        let windowTitle = getWindowTitle(pid: pid) ?? ""
+        let category = categorize(appName)
+
+        var parts: [String] = []
+        parts.append("Active app: \(appName) (category: \(category.rawValue))")
+        if !windowTitle.isEmpty {
+            parts.append("Window: \(windowTitle)")
+        }
+        return parts.joined(separator: "\n")
+    }
+
     /// Builds a context string suitable for including in a GPT prompt
-    /// Always returns context (at minimum the app name) so the prompt can adapt formatting
+    /// Always returns context (at minimum the app name) so the prompt can adapt formatting.
+    /// NOTE: This may be slow (runs git ls-files) — call from a background thread.
     static func buildPromptContext() -> String? {
         guard let context = getCurrentContext() else { return nil }
 

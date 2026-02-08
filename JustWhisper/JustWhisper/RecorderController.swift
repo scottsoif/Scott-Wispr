@@ -171,11 +171,8 @@ class RecorderController: NSObject, AudioRecorderProtocol {
         do {
             try audioEngine.start()
         } catch {
-            print("⚠️ Failed to start audio engine, attempting device recovery...")
-            
             // If starting fails (common with AirPods), try fallback to default device
             if selectedDevice != AudioDevice.default {
-                print("🔄 Switching to default device and retrying...")
                 
                 // Clean up current engine
                 audioEngine.stop()
@@ -232,7 +229,6 @@ class RecorderController: NSObject, AudioRecorderProtocol {
                 
                 // Try starting again with default device
                 try audioEngine.start()
-                print("✅ Successfully recovered using default device (was trying: \(previousDevice.name))")
             } else {
                 // Already using default device, re-throw the error
                 throw error
@@ -387,25 +383,22 @@ class RecorderController: NSObject, AudioRecorderProtocol {
         
         DispatchQueue.main.async {
             self.availableDevices = devices
-            
+
             // Update selected device if it was loaded from UserDefaults
             if self.selectedDevice.uid != "default" {
                 if let savedDevice = devices.first(where: { $0.uid == self.selectedDevice.uid }) {
                     self.selectedDevice = savedDevice
-                    print("✅ Restored saved device: \(savedDevice.name)")
                 } else {
                     // Saved device not found (disconnected), reset to default
-                    print("⚠️ Saved device '\(self.selectedDevice.uid)' not found, switching to default")
                     self.selectedDevice = AudioDevice.default
                     self.saveSelectedDevice()
                 }
             }
+
+            // Auto-select DJI mic if available and user is on "Default"
+            self.autoSelectPreferredDevice()
         }
         
-        print("Found \(devices.count) audio input devices")
-        for device in devices {
-            print("  - \(device.name) (\(device.uid))")
-        }
     }
     
     /**
@@ -437,13 +430,11 @@ class RecorderController: NSObject, AudioRecorderProtocol {
             
             // Give AirPods and other wireless devices time to become ready
             if device.name.contains("AirPods") || device.name.contains("Bluetooth") {
-                print("⏳ Waiting for wireless device to become ready...")
                 Thread.sleep(forTimeInterval: 0.5)
             }
         }
         
         // Setup with new device - setupAudioEngine will be called when needed
-        print("✅ Successfully switched to device: \(device.name)")
     }
     
     /**
@@ -471,8 +462,6 @@ class RecorderController: NSObject, AudioRecorderProtocol {
         if status != noErr {
             print("⚠️ Could not set system default input device: \(status) (this is often normal)")
             // Don't throw - many apps can't change system defaults, but the device switch may still work
-        } else {
-            print("✅ Set system default input device to: \(device.name)")
         }
     }
     
@@ -482,7 +471,6 @@ class RecorderController: NSObject, AudioRecorderProtocol {
     private func setInputDeviceInternal(_ device: AudioDevice) throws {
         // With the new approach, we rely on system default device setting
         // The audio engine will pick up the correct device when it starts
-        print("✅ Audio engine will use device: \(device.name)")
     }
     
     /**
@@ -555,37 +543,62 @@ class RecorderController: NSObject, AudioRecorderProtocol {
         if status != noErr {
             print("⚠️ Failed to setup device change listener: \(status)")
         } else {
-            print("✅ Setup device change listener")
         }
     }
     
+    /// Preferred microphone name prefixes, in priority order.
+    /// The first connected device matching any prefix will be auto-selected.
+    private static let preferredMicPrefixes = ["DJI Mic"]
+
+    /**
+     * Auto-selects a preferred microphone (e.g. DJI Mic) if one is available.
+     * Only switches if the user is currently on "Default" — never overrides a manual choice.
+     */
+    private func autoSelectPreferredDevice() {
+        // Only auto-switch when on Default (don't override a deliberate user choice)
+        guard selectedDevice.uid == "default" else { return }
+
+        for prefix in Self.preferredMicPrefixes {
+            if let preferred = availableDevices.first(where: {
+                $0.uid != "default" && $0.name.hasPrefix(prefix)
+            }) {
+                do {
+                    try setInputDevice(preferred)
+                } catch {
+                    print("⚠️ Failed to auto-select \(preferred.name): \(error)")
+                }
+                return
+            }
+        }
+    }
+
     /**
      * Handles changes to the device list (devices added/removed)
      */
     private func handleDeviceListChange() {
-        print("🔄 Audio device list changed, refreshing...")
-        
+
         let previousDeviceCount = availableDevices.count
         let previousSelectedDevice = selectedDevice
-        
-        // Refresh the device list
+
+        // Refresh the device list (will also call autoSelectPreferredDevice)
         refreshDevices()
-        
+
         // Check if our selected device is still available
         if !availableDevices.contains(where: { $0.uid == previousSelectedDevice.uid }) && previousSelectedDevice != AudioDevice.default {
-            print("⚠️ Selected device '\(previousSelectedDevice.name)' disconnected, switching to default")
-            
+
             // Device disconnected, switch to default
             selectedDevice = AudioDevice.default
             saveSelectedDevice()
-            
-            // If we were recording, restart with default device
+
+            // After falling back to default, check if a preferred mic is available
+            autoSelectPreferredDevice()
+
+            // If we were recording, restart with the new device
             if isRecording {
-                print("🔄 Restarting recording with default device...")
                 do {
                     let wasRecording = isRecording
                     stopRecording()
-                    
+
                     // Clean up and restart audio engine
                     if let engine = audioEngine {
                         if engine.isRunning {
@@ -594,7 +607,7 @@ class RecorderController: NSObject, AudioRecorderProtocol {
                         audioEngine = nil
                         inputNode = nil
                     }
-                    
+
                     if wasRecording {
                         try startRecording()
                     }
@@ -603,16 +616,12 @@ class RecorderController: NSObject, AudioRecorderProtocol {
                 }
             }
         }
-        
+
         // Log device changes
-        if availableDevices.count != previousDeviceCount {
-            print("📱 Device count changed: \(previousDeviceCount) → \(availableDevices.count)")
-        }
     }
     
     deinit {
         // Clean up - just stop recording if needed, skip listener removal since it requires exact callback match
-        print("🧹 RecorderController: Cleaning up")
         
         if isRecording {
             stopRecording()

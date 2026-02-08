@@ -38,6 +38,7 @@ struct SettingsView: View {
     @AppStorage("JustWhisperEnabled") private var isEnabled: Bool = true
     @AppStorage("UseTestMode") private var useTestMode: Bool = false
     @AppStorage("AutoPauseMusic") private var autoPauseMusic: Bool = true
+    @AppStorage("PlayChimeOnRecord") private var playChimeOnRecord: Bool = true
     @AppStorage("OverlayOpacity") private var overlayOpacity: Double = 0.85
     @AppStorage("OverlayPosition") private var overlayPosition: String = "center"
 
@@ -185,6 +186,9 @@ struct SettingsView: View {
 
                 Toggle("Mute audio while recording", isOn: $autoPauseMusic)
                     .help("Mute system audio when recording starts and unmute when done")
+
+                Toggle("Play chime when recording starts", isOn: $playChimeOnRecord)
+                    .help("Play a gentle sound when recording begins")
 
                 Toggle("Test Mode", isOn: $useTestMode)
                     .help("Use dummy responses for testing without API calls")
@@ -970,7 +974,7 @@ struct SettingsView: View {
 
     private var footerSection: some View {
         HStack {
-            Text("Hold Fn key to start recording")
+            Text("Press Fn key to start/stop recording")
                 .font(.caption)
                 .foregroundColor(.secondary)
             Spacer()
@@ -1027,6 +1031,7 @@ struct SettingsView: View {
         isEnabled = true
         useTestMode = false
         autoPauseMusic = true
+        playChimeOnRecord = true
         overlayOpacity = 0.85
         overlayPosition = "center"
         overlayColorRed = 0.2

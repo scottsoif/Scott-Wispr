@@ -215,23 +215,19 @@ class OverlayWindow: NSObject {
         guard let window = window else { return }
 
         // Capture app context BEFORE the overlay takes focus
-        capturedAppContext = ActiveAppContext.buildPromptContext()
-        if let ctx = capturedAppContext {
-            print("📂 Captured app context: \(ctx.prefix(100))...")
-        }
+        // This must happen synchronously before the overlay window becomes frontmost
+        capturedAppContext = ActiveAppContext.buildPromptContextFast()
 
-        // Cancel any pending hide operations
         cancelPendingHideTasks()
-
-        // Fully reset the overlay before showing
         resetOverlay()
-
-        // Update overlay color and opacity from current settings
         updateOverlayColorAndOpacity()
 
-        print("🎬 OverlayWindow: Showing recording overlay")
-        
-        // Pause media playback if enabled
+        // Play chime if enabled (before muting so it's audible)
+        if UserDefaults.standard.bool(forKey: "PlayChimeOnRecord") {
+            NSSound(named: "Tink")?.play()
+        }
+
+        // Mute system audio if enabled
         MediaController.shared.pauseIfEnabled()
 
         // Start recording
@@ -243,39 +239,29 @@ class OverlayWindow: NSObject {
             showError("Failed to start recording")
             return
         }
-        
+
         // Start level update timer to animate waveform
         levelUpdateTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
             guard let self = self else { return }
             Task { @MainActor in
-                let audioLevel = self.recorder.audioLevel
-                self.waveView?.updateAudioLevel(audioLevel, isRecording: true)
+                self.waveView?.updateAudioLevel(self.recorder.audioLevel, isRecording: true)
             }
         }
-        
-        // Reposition window based on user preference on the current screen
+
         positionWindow()
-        
-        // Ensure window is ready to show
+
         if window.isVisible {
-            print("🔄 Window was already visible, hiding first")
-            window.orderOut(nil) // Hide first if already visible
+            window.orderOut(nil)
         }
-        
-        // Set window properties to ensure visibility
+
         window.level = .floating
         window.alphaValue = 0
         window.makeKeyAndOrderFront(nil)
-        
-        print("🎬 Window made key and ordered front, starting fade-in animation")
-        
-        // Animate window appearance
+
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.15
             context.timingFunction = CAMediaTimingFunction(name: .easeOut)
             window.animator().alphaValue = 1.0
-        } completionHandler: {
-            print("✅ Overlay fade-in animation completed")
         }
     }
     
@@ -293,19 +279,22 @@ class OverlayWindow: NSObject {
         // Stop recording
         recorder.stopRecording()
         waveView?.setRecording(false)
-        
+
+        // Unmute immediately — only mute while actively recording
+        MediaController.shared.resumeIfNeeded()
+
         // Switch to thinking mode
         waveView?.isHidden = true
         thinkingView?.isHidden = false
         thinkingView?.startAnimating()
         errorLabel?.isHidden = true
-        
+
         // Process the recorded audio - overlay will be hidden after processing completes
         transcriptionTask = Task {
             await processRecordedAudio(copyOnly: false, noGPT: false)
         }
     }
-    
+
     /// Stops recording and processes the audio with optional no-GPT enhancement flag
     func stopRecording(noGPT: Bool) {
         guard window != nil else { return }
@@ -320,19 +309,22 @@ class OverlayWindow: NSObject {
         // Stop recording
         recorder.stopRecording()
         waveView?.setRecording(false)
-        
+
+        // Unmute immediately — only mute while actively recording
+        MediaController.shared.resumeIfNeeded()
+
         // Switch to thinking mode
         waveView?.isHidden = true
         thinkingView?.isHidden = false
         thinkingView?.startAnimating()
         errorLabel?.isHidden = true
-        
+
         // Process the recorded audio with the no-GPT option
         transcriptionTask = Task {
             await processRecordedAudio(copyOnly: false, noGPT: noGPT)
         }
     }
-    
+
     /// Stops recording and processes the audio in copy-only mode (no paste)
     func stopRecordingCopyOnly() {
         guard window != nil else { return }
@@ -347,13 +339,16 @@ class OverlayWindow: NSObject {
         // Stop recording
         recorder.stopRecording()
         waveView?.setRecording(false)
-        
+
+        // Unmute immediately — only mute while actively recording
+        MediaController.shared.resumeIfNeeded()
+
         // Switch to thinking mode
         waveView?.isHidden = true
         thinkingView?.isHidden = false
         thinkingView?.startAnimating()
         errorLabel?.isHidden = true
-        
+
         // Process the recorded audio in copy-only mode
         transcriptionTask = Task {
             await processRecordedAudio(copyOnly: true)
@@ -365,7 +360,6 @@ class OverlayWindow: NSObject {
         guard let recordingURL = recorder.getRecordingURL() else {
             showError("No recording found")
             hideOverlayAfterDelay(seconds: 10)
-            MediaController.shared.resumeIfNeeded()
             return
         }
         
@@ -405,17 +399,13 @@ class OverlayWindow: NSObject {
             if shouldUseOpenAI {
                 do {
                     // Use OpenAI for advanced transcript enhancement
-                    print("🤖 Enhancing transcript with OpenAI...")
                     cleanedText = try await cleaner.enhanceWithOpenAI(transcript, appContext: self.capturedAppContext)
-                    print("✅ Successfully enhanced transcript with OpenAI")
                 } catch {
                     print("⚠️ OpenAI enhancement failed: \(error.localizedDescription)")
-                    print("🔄 Falling back to local processing")
                     cleanedText = cleaner.cleanTranscript(transcript)
                 }
             } else {
                 // Use local processing
-                print("📝 Using local transcript cleaning (OpenAI disabled or no-GPT mode)")
                 cleanedText = cleaner.cleanTranscript(transcript)
             }
             
@@ -423,7 +413,6 @@ class OverlayWindow: NSObject {
             if cleanedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 showError("No speech detected")
                 hideOverlayAfterDelay(seconds: 10)
-                MediaController.shared.resumeIfNeeded()
                 return
             }
             
@@ -449,9 +438,6 @@ class OverlayWindow: NSObject {
                 hideOverlayAfterDelay(seconds: 0.5) // Hide quickly after paste
             }
 
-            // Resume media playback
-            MediaController.shared.resumeIfNeeded()
-
             // Clear the transcription task reference
             self.transcriptionTask = nil
 
@@ -476,9 +462,6 @@ class OverlayWindow: NSObject {
             // Display error in red for 10 seconds
             showError(errorMessage)
             hideOverlayAfterDelay(seconds: 10)
-
-            // Resume media playback even on error
-            MediaController.shared.resumeIfNeeded()
 
             // Clear the transcription task reference
             self.transcriptionTask = nil
@@ -537,8 +520,6 @@ class OverlayWindow: NSObject {
     private func hideOverlay() {
         guard let window = window else { return }
         
-        print("🔽 OverlayWindow: Hiding overlay window")
-        
         // Stop timers
         levelUpdateTimer?.invalidate()
         levelUpdateTimer = nil
@@ -589,8 +570,6 @@ class OverlayWindow: NSObject {
         // Cancel any existing hide tasks
         cancelPendingHideTasks()
         
-        print("⏱️ OverlayWindow: Scheduled to hide after \(seconds)s delay")
-        
         // Create a new hide task
         hideTask = Task {
             do {
@@ -606,7 +585,6 @@ class OverlayWindow: NSObject {
                 // Ensure we run UI updates on the main thread
                 await MainActor.run {
                     if !Task.isCancelled {
-                        print("⏱️ OverlayWindow: Hiding after \(seconds)s delay")
                         hideOverlay()
                     }
                 }
@@ -657,8 +635,6 @@ class OverlayWindow: NSObject {
     func forceHide() {
         guard let window = window else { return }
         
-        print("🚨 OverlayWindow: Force hiding overlay (emergency reset)")
-        
         // Cancel all tasks
         cancelPendingHideTasks()
         transcriptionTask?.cancel()
@@ -682,7 +658,6 @@ class OverlayWindow: NSObject {
         // Reset hotkey controller
         hotkeyController?.resetRecordingState()
         
-        print("✅ OverlayWindow: Force hide complete")
     }
     
     /// Resets the overlay window to its initial state
@@ -718,7 +693,6 @@ class OverlayWindow: NSObject {
         // Ensure Hotkey controller state is reset
         hotkeyController?.resetRecordingState()
         
-        print("🔄 OverlayWindow: Reset complete - window ready for reuse")
     }
     
     /// Updates the overlay background color and opacity from user settings
@@ -747,7 +721,6 @@ class OverlayWindow: NSObject {
         visualEffectView.layer?.backgroundColor = NSColor(red: red, green: green, blue: blue, alpha: alpha).cgColor
         visualEffectView.alphaValue = opacity
         
-        print("🎨 Updated overlay color: R:\(red) G:\(green) B:\(blue) A:\(alpha) Opacity:\(opacity)")
     }
     
     /// Legacy method for backward compatibility - now calls the new method
@@ -787,10 +760,6 @@ class OverlayWindow: NSObject {
         let windowFrame = window.frame
         let margin: CGFloat = 50 // Distance from screen edges
         
-        print("🖥️ Screen frame: \(screenFrame)")
-        print("🪟 Window frame: \(windowFrame)")
-        print("📍 Requested position: \(overlayPosition)")
-        
         let x: CGFloat
         let y: CGFloat
         
@@ -811,7 +780,6 @@ class OverlayWindow: NSObject {
             x = screenFrame.midX - windowFrame.width / 2
             y = screenFrame.midY - windowFrame.height / 2
         default: // fallback to center
-            print("⚠️ Unknown position '\(overlayPosition)', using center")
             x = screenFrame.midX - windowFrame.width / 2
             y = screenFrame.midY - windowFrame.height / 2
         }
@@ -820,14 +788,11 @@ class OverlayWindow: NSObject {
         let clampedX = max(screenFrame.minX, min(x, screenFrame.maxX - windowFrame.width))
         let clampedY = max(screenFrame.minY, min(y, screenFrame.maxY - windowFrame.height))
         
-        print("🎯 Calculated position: (\(x), \(y)) -> Clamped: (\(clampedX), \(clampedY))")
-        
         window.setFrameOrigin(NSPoint(x: clampedX, y: clampedY))
         
         // Set window level but don't make it visible - only showRecording() should do that
         window.level = .floating
         
-        print("✅ Positioned overlay at \(overlayPosition): (\(clampedX), \(clampedY)) on screen \(screenFrame)")
     }
     
     deinit {
@@ -841,8 +806,6 @@ class OverlayWindow: NSObject {
             print("❌ OverlayWindow: Cannot show preview - window is nil")
             return 
         }
-        
-        print("🎨 OverlayWindow: Showing overlay for color preview")
         
         // Cancel any pending hide operations
         cancelPendingHideTasks()
@@ -861,14 +824,11 @@ class OverlayWindow: NSObject {
         errorLabel?.font = NSFont.systemFont(ofSize: 14, weight: .medium)
         errorLabel?.isHidden = false
         
-        print("🎨 OverlayWindow: Set up preview UI elements")
-        
         // Position window based on user preference
         positionWindow()
         
         // Ensure window is ready to show
         if window.isVisible {
-            print("🔄 Preview window was already visible, hiding first")
             window.orderOut(nil) // Hide first if already visible
         }
         
@@ -879,23 +839,17 @@ class OverlayWindow: NSObject {
         window.orderFrontRegardless()
         NSApplication.shared.activate(ignoringOtherApps: true)
         
-        print("🎨 Window made key and ordered front for preview, starting fade-in animation")
-        
         // Animate window appearance
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.15
             context.timingFunction = CAMediaTimingFunction(name: .easeOut)
             window.animator().alphaValue = 1.0
-        } completionHandler: {
-            print("✅ Overlay preview shown successfully")
         }
     }
     
     /// Hides the overlay preview
     func hidePreview() {
         guard let window = window, window.isVisible else { return }
-        
-        print("🎨 OverlayWindow: Hiding overlay preview")
         
         // Fade out with smooth animation
         NSAnimationContext.runAnimationGroup { context in
@@ -908,7 +862,7 @@ class OverlayWindow: NSObject {
             
             // Reset overlay state
             self.resetOverlay()
-            print("✅ Overlay preview hidden")
+
         }
     }
     

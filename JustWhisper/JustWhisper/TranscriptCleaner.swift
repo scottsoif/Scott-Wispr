@@ -564,20 +564,8 @@ extension TranscriptCleaner {
             let apiVersion = UserDefaults.standard.string(forKey: "AzureOpenAIAPIVersion") ?? ""
             let apiKey = UserDefaults.standard.string(forKey: "AzureOpenAIAPIKey") ?? ""
             guard !endpoint.isEmpty, !deploymentName.isEmpty, !apiVersion.isEmpty, !apiKey.isEmpty else {
-                print("❌ Azure OpenAI configuration incomplete in user preferences")
-                print("📝 To use Azure OpenAI enhancement, please configure:")
-                print("   • Azure OpenAI API Key", apiKey.isEmpty ? "(not set)" : "")
-                print("   • Azure OpenAI Endpoint", endpoint.isEmpty ? "(not set)" : "")
-                print("   • Azure OpenAI Deployment", deploymentName.isEmpty ? "(not set)" : "")
-                print("   • Azure OpenAI API Version", apiVersion.isEmpty ? "(not set)" : "")
-                print("   Open JustWhisper Preferences → Azure OpenAI API section")
-
                 return nil
             }
-
-            print("Azure OpenAI configuration found successfully")
-            print("Using deployment: \(deploymentName)")
-            print("Using API version: \(apiVersion)")
             
             return AzureOpenAIConfig(
                 endpoint: endpoint,
@@ -601,11 +589,6 @@ extension TranscriptCleaner {
             let apiKey = UserDefaults.standard.string(forKey: "OpenAIAPIKey") ?? ""
             
             guard !baseURL.isEmpty, !model.isEmpty, !apiKey.isEmpty else {
-                print("❌ OpenAI configuration incomplete in user preferences")
-                print("📝 To use OpenAI enhancement, please configure:")
-                print("   • OpenAI API Key", apiKey.isEmpty ? "(not set)" : "")
-                print("   • OpenAI Base URL", baseURL.isEmpty ? "(not set)" : "")
-                print("   • OpenAI Model", model.isEmpty ? "(not set)" : "")
                 return nil
             }
             
@@ -658,7 +641,10 @@ extension TranscriptCleaner {
     private func buildSystemPrompt(appContext: String?) -> String {
         // Parse the app category from context string
         let category = parseAppCategory(from: appContext)
-        let formattingGuidance = formattingRules(for: category)
+        // TODO: Re-enable per-app formatting once validated
+        // let formattingGuidance = formattingRules(for: category)
+        let formattingGuidance = formattingRules(for: "other") // Use generic rules for now
+        print("🏷️ Context: \(category) | \(appContext ?? "none")")
 
         let contextSection = appContext.map { "\n\nCONTEXT:\n\($0)" } ?? ""
 
@@ -836,7 +822,6 @@ extension TranscriptCleaner {
     /// Enhanced transcript processing using Azure OpenAI
     func enhanceWithAzureOpenAI(_ text: String, appContext: String? = nil) async throws -> String {
         guard let config = AzureOpenAIConfig.fromEnvironment() else {
-            print("Azure OpenAI configuration not found, using local processing")
             return cleanTranscript(text)
         }
 
@@ -902,7 +887,6 @@ extension TranscriptCleaner {
     /// Enhanced transcript processing using standard OpenAI API
     func enhanceWithStandardOpenAI(_ text: String, appContext: String? = nil) async throws -> String {
         guard let config = OpenAIConfig.fromEnvironment() else {
-            print("OpenAI configuration not found, using local processing")
             return cleanTranscript(text)
         }
 
@@ -953,7 +937,6 @@ extension TranscriptCleaner {
         }
 
         let enhancedText = choice.message.content.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
-        print("✅ Successfully enhanced transcript using OpenAI (\(config.model))")
         return enhancedText
     }
 }
