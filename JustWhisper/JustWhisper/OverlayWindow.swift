@@ -57,6 +57,12 @@ class OverlayWindow: NSObject {
     
     // Tracking variable for transcription task - used to cancel ongoing transcription
     private var transcriptionTask: Task<Void, Never>? = nil
+
+    // Captured app context from when recording started (before overlay takes focus)
+    private var capturedAppContext: String? = nil
+
+    // Duration of the last recording (captured before recorder is stopped)
+    private var lastRecordingDuration: TimeInterval = 0
     
     init(hotkeyController: HotkeyController? = nil) {
         super.init()
@@ -156,9 +162,28 @@ class OverlayWindow: NSObject {
         errorLabel?.maximumNumberOfLines = 2
         errorLabel?.isHidden = true
         container.addSubview(errorLabel!)
-        
+
+        // Close button (X) - top right corner
+        let closeButton = NSButton()
+        closeButton.translatesAutoresizingMaskIntoConstraints = false
+        closeButton.bezelStyle = .inline
+        closeButton.isBordered = false
+        closeButton.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: "Close")?
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 10, weight: .semibold))
+        closeButton.contentTintColor = .white.withAlphaComponent(0.6)
+        closeButton.target = self
+        closeButton.action = #selector(closeButtonPressed)
+        closeButton.toolTip = "Cancel (Esc)"
+        container.addSubview(closeButton)
+
         // Layout constraints
         NSLayoutConstraint.activate([
+            // Close button - top right
+            closeButton.topAnchor.constraint(equalTo: container.topAnchor, constant: 8),
+            closeButton.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -8),
+            closeButton.widthAnchor.constraint(equalToConstant: 20),
+            closeButton.heightAnchor.constraint(equalToConstant: 20),
+
             // Mic icon - top center
             micIcon.centerXAnchor.constraint(equalTo: container.centerXAnchor),
             micIcon.topAnchor.constraint(equalTo: container.topAnchor, constant: 32),
@@ -188,18 +213,27 @@ class OverlayWindow: NSObject {
     /// Shows the overlay and starts recording
     func showRecording() {
         guard let window = window else { return }
-        
+
+        // Capture app context BEFORE the overlay takes focus
+        capturedAppContext = ActiveAppContext.buildPromptContext()
+        if let ctx = capturedAppContext {
+            print("📂 Captured app context: \(ctx.prefix(100))...")
+        }
+
         // Cancel any pending hide operations
         cancelPendingHideTasks()
-        
+
         // Fully reset the overlay before showing
         resetOverlay()
-        
+
         // Update overlay color and opacity from current settings
         updateOverlayColorAndOpacity()
-        
+
         print("🎬 OverlayWindow: Showing recording overlay")
         
+        // Pause media playback if enabled
+        MediaController.shared.pauseIfEnabled()
+
         // Start recording
         do {
             try recorder.startRecording()
@@ -248,11 +282,14 @@ class OverlayWindow: NSObject {
     /// Stops recording and processes the audio
     func stopRecording() {
         guard window != nil else { return }
-        
+
         // Stop level update timer
         levelUpdateTimer?.invalidate()
         levelUpdateTimer = nil
-        
+
+        // Capture duration before stopping
+        lastRecordingDuration = recorder.duration
+
         // Stop recording
         recorder.stopRecording()
         waveView?.setRecording(false)
@@ -272,11 +309,14 @@ class OverlayWindow: NSObject {
     /// Stops recording and processes the audio with optional no-GPT enhancement flag
     func stopRecording(noGPT: Bool) {
         guard window != nil else { return }
-        
+
         // Stop level update timer
         levelUpdateTimer?.invalidate()
         levelUpdateTimer = nil
-        
+
+        // Capture duration before stopping
+        lastRecordingDuration = recorder.duration
+
         // Stop recording
         recorder.stopRecording()
         waveView?.setRecording(false)
@@ -296,11 +336,14 @@ class OverlayWindow: NSObject {
     /// Stops recording and processes the audio in copy-only mode (no paste)
     func stopRecordingCopyOnly() {
         guard window != nil else { return }
-        
+
         // Stop level update timer
         levelUpdateTimer?.invalidate()
         levelUpdateTimer = nil
-        
+
+        // Capture duration before stopping
+        lastRecordingDuration = recorder.duration
+
         // Stop recording
         recorder.stopRecording()
         waveView?.setRecording(false)
@@ -319,10 +362,11 @@ class OverlayWindow: NSObject {
     
     /// Processes recorded audio through Whisper API and handles text output
     private func processRecordedAudio(copyOnly: Bool = false, noGPT: Bool = false) async {
-        guard let recordingURL = recorder.getRecordingURL() else { 
+        guard let recordingURL = recorder.getRecordingURL() else {
             showError("No recording found")
-            hideOverlayAfterDelay(seconds: 10) // Keep error visible for 10 seconds
-            return 
+            hideOverlayAfterDelay(seconds: 10)
+            MediaController.shared.resumeIfNeeded()
+            return
         }
         
         do {
@@ -362,7 +406,7 @@ class OverlayWindow: NSObject {
                 do {
                     // Use OpenAI for advanced transcript enhancement
                     print("🤖 Enhancing transcript with OpenAI...")
-                    cleanedText = try await cleaner.enhanceWithOpenAI(transcript)
+                    cleanedText = try await cleaner.enhanceWithOpenAI(transcript, appContext: self.capturedAppContext)
                     print("✅ Successfully enhanced transcript with OpenAI")
                 } catch {
                     print("⚠️ OpenAI enhancement failed: \(error.localizedDescription)")
@@ -379,6 +423,7 @@ class OverlayWindow: NSObject {
             if cleanedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 showError("No speech detected")
                 hideOverlayAfterDelay(seconds: 10)
+                MediaController.shared.resumeIfNeeded()
                 return
             }
             
@@ -388,6 +433,12 @@ class OverlayWindow: NSObject {
                 return
             }
             
+            // Record usage stats
+            UsageStats.shared.recordTranscription(
+                text: cleanedText,
+                recordingDurationSeconds: lastRecordingDuration
+            )
+
             // Either paste or copy based on mode
             if copyOnly {
                 await copyTextToClipboard(cleanedText)
@@ -397,10 +448,13 @@ class OverlayWindow: NSObject {
                 await pasteText(cleanedText)
                 hideOverlayAfterDelay(seconds: 0.5) // Hide quickly after paste
             }
-            
+
+            // Resume media playback
+            MediaController.shared.resumeIfNeeded()
+
             // Clear the transcription task reference
             self.transcriptionTask = nil
-            
+
         } catch {
             print("Failed to process audio: \(error)")
             
@@ -422,7 +476,10 @@ class OverlayWindow: NSObject {
             // Display error in red for 10 seconds
             showError(errorMessage)
             hideOverlayAfterDelay(seconds: 10)
-            
+
+            // Resume media playback even on error
+            MediaController.shared.resumeIfNeeded()
+
             // Clear the transcription task reference
             self.transcriptionTask = nil
         }
@@ -855,6 +912,11 @@ class OverlayWindow: NSObject {
         }
     }
     
+    /// Called when the X close button is pressed
+    @objc private func closeButtonPressed() {
+        handleEscapeKey()
+    }
+
     /// Handles escape key press to cancel current operation and hide overlay
     func handleEscapeKey() {
         guard let window = window, window.isVisible else { return }
@@ -902,13 +964,16 @@ class OverlayWindow: NSObject {
         // Stop level update timer
         levelUpdateTimer?.invalidate()
         levelUpdateTimer = nil
-        
+
         // Stop thinking animation
         thinkingView?.stopAnimating()
-        
+
+        // Resume media playback on cancel
+        MediaController.shared.resumeIfNeeded()
+
         // Reset hotkey controller state
         hotkeyController?.resetRecordingState()
-        
+
         print("🛑 OverlayWindow: Operation canceled via escape key")
     }
 }

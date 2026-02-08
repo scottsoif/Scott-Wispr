@@ -19,6 +19,9 @@ class HotkeyController: ObservableObject {
     
     /// Whether we're currently recording (for toggle behavior)
     private var isRecording = false
+
+    /// Whether we're currently processing (thinking) - escape should still work
+    private var isProcessing = false
     
     /// Whether accessibility permissions have been checked and granted
     private var accessibilityPermissionGranted = false
@@ -55,6 +58,13 @@ class HotkeyController: ObservableObject {
     /// Resets the recording state (called when overlay is closed)
     func resetRecordingState() {
         isRecording = false
+        isProcessing = false
+    }
+
+    /// Marks the transition from recording to processing (thinking)
+    func setProcessing() {
+        isRecording = false
+        isProcessing = true
     }
     
     /// Forces a complete restart of the hotkey system (useful for debugging)
@@ -216,6 +226,7 @@ class HotkeyController: ObservableObject {
                 Task { @MainActor in
                     onNoGPTPastePress?()
                     isRecording = false
+                    isProcessing = true
                 }
                 return nil
             }
@@ -229,10 +240,11 @@ class HotkeyController: ObservableObject {
                 Task { @MainActor in
                     // Toggle between start and stop recording
                     if isRecording {
-                        // Currently recording, so stop it
+                        // Currently recording, so stop it and start processing
                         print("🛑 HotkeyController: Stopping recording...")
                         onHotkeyRelease?()
                         isRecording = false
+                        isProcessing = true
                     } else {
                         // Not recording, so start it
                         print("🎬 HotkeyController: Starting recording...")
@@ -255,21 +267,23 @@ class HotkeyController: ObservableObject {
                 print("⚡ HotkeyController: Ctrl keyDown - no-GPT paste")
                 Task { @MainActor in
                     onNoGPTPastePress?()
-                    isRecording = false // Stop recording after action
+                    isRecording = false
+                    isProcessing = true
                 }
                 return nil
             default:
                 break
             }
         }
-        // Handle Escape key for canceling recording
-        else if keyCode == escapeKeyCode && isRecording {
+        // Handle Escape key for canceling recording or processing
+        else if keyCode == escapeKeyCode && (isRecording || isProcessing) {
             switch type {
             case .keyDown:
-                print("🛑 HotkeyController: Escape pressed - canceling recording")
+                print("🛑 HotkeyController: Escape pressed - canceling \(isRecording ? "recording" : "processing")")
                 Task { @MainActor in
                     onEscapePress?()
-                    isRecording = false // Stop recording after escape
+                    isRecording = false
+                    isProcessing = false
                 }
                 // Don't pass this event through to prevent normal Escape behavior
                 return nil
