@@ -564,20 +564,8 @@ extension TranscriptCleaner {
             let apiVersion = UserDefaults.standard.string(forKey: "AzureOpenAIAPIVersion") ?? ""
             let apiKey = UserDefaults.standard.string(forKey: "AzureOpenAIAPIKey") ?? ""
             guard !endpoint.isEmpty, !deploymentName.isEmpty, !apiVersion.isEmpty, !apiKey.isEmpty else {
-                print("❌ Azure OpenAI configuration incomplete in user preferences")
-                print("📝 To use Azure OpenAI enhancement, please configure:")
-                print("   • Azure OpenAI API Key", apiKey.isEmpty ? "(not set)" : "")
-                print("   • Azure OpenAI Endpoint", endpoint.isEmpty ? "(not set)" : "")
-                print("   • Azure OpenAI Deployment", deploymentName.isEmpty ? "(not set)" : "")
-                print("   • Azure OpenAI API Version", apiVersion.isEmpty ? "(not set)" : "")
-                print("   Open JustWhisper Preferences → Azure OpenAI API section")
-
                 return nil
             }
-
-            print("Azure OpenAI configuration found successfully")
-            print("Using deployment: \(deploymentName)")
-            print("Using API version: \(apiVersion)")
             
             return AzureOpenAIConfig(
                 endpoint: endpoint,
@@ -601,11 +589,6 @@ extension TranscriptCleaner {
             let apiKey = UserDefaults.standard.string(forKey: "OpenAIAPIKey") ?? ""
             
             guard !baseURL.isEmpty, !model.isEmpty, !apiKey.isEmpty else {
-                print("❌ OpenAI configuration incomplete in user preferences")
-                print("📝 To use OpenAI enhancement, please configure:")
-                print("   • OpenAI API Key", apiKey.isEmpty ? "(not set)" : "")
-                print("   • OpenAI Base URL", baseURL.isEmpty ? "(not set)" : "")
-                print("   • OpenAI Model", model.isEmpty ? "(not set)" : "")
                 return nil
             }
             
@@ -654,148 +637,263 @@ extension TranscriptCleaner {
     /// - Parameter text: The raw transcript text
     /// - Returns: Enhanced and cleaned text
     /// Enhanced transcript processing using OpenAI (supports both Azure and standard APIs)
-    func enhanceWithOpenAI(_ text: String) async throws -> String {
-        let openAIProvider = UserDefaults.standard.string(forKey: "OpenAIProvider") ?? "azure"
-        
-        if openAIProvider == "azure" {
-            return try await enhanceWithAzureOpenAI(text)
-        } else {
-            return try await enhanceWithStandardOpenAI(text)
+    /// Builds the system prompt, adapting formatting rules based on the active app context
+    private func buildSystemPrompt(appContext: String?) -> String {
+        // Parse the app category from context string
+        let category = parseAppCategory(from: appContext)
+        // TODO: Re-enable per-app formatting once validated
+        // let formattingGuidance = formattingRules(for: category)
+        let formattingGuidance = formattingRules(for: "other") // Use generic rules for now
+        print("🏷️ Context: \(category) | \(appContext ?? "none")")
+
+        let contextSection = appContext.map { "\n\nCONTEXT:\n\($0)" } ?? ""
+
+        return """
+        You are a voice-to-text formatter. Convert raw speech transcription into polished written text.
+
+        CORE RULES:
+        - Remove filler words (um, uh, like, you know, basically, so, etc.)
+        - Fix grammar, spelling, and punctuation naturally
+        - If the speaker corrects themselves ("actually", "I mean", "sorry", "no wait"), keep only the correction
+        - Maintain the speaker's original meaning — never add, invent, or editorialize
+        - Format numbers, currencies, and units naturally: "$100k", "2x", "10ms", "3rd", "$30/month", "5pm"
+        - Use concise written forms when appropriate: "e.g." not "for example", "vs" not "versus", "&" not "and" in lists
+
+        VOICE COMMANDS — replace these spoken words with actual formatting (match phonetic variations too):
+        - "comma" / "kamma" / "coma" → ,
+        - "period" / "full stop" → .
+        - "question mark" → ?
+        - "exclamation point" / "exclamation mark" → !
+        - "new line" / "newline" / "return" / "enter" / "next line" → actual line break
+        - "new paragraph" / "paragraph break" → double line break
+        - "bullet point" / "bullet" / "bullitt" / "dash" → line break + "- " (or "• ")
+        - "colon" → :
+        - "semicolon" / "semi colon" → ;
+        - "open paren" / "left paren" → (
+        - "close paren" / "right paren" → )
+        - "hyphen" / "dash" (when clearly meant as punctuation, not a bullet) → -
+        - "slash" → /
+        - "hashtag" / "hash" → #
+        - "at sign" → @
+
+        SMART FORMATTING — infer structure from the speaker's intent:
+        - If the speaker lists items (says "first... second... third..." or "one... two... three..."), format as a numbered list
+        - If the speaker says "a few things" or "couple points" then lists them, format as bullet points
+        - If the speaker dictates something that's clearly a URL, email address, or file path, format it without spaces
+        - If the speaker spells out a word letter by letter, combine the letters into the word
+
+        \(formattingGuidance)\(contextSection)
+
+        Return ONLY the formatted text. No explanations, labels, or wrapper text.
+        """
+    }
+
+    /// Parses the app category from the context string
+    private func parseAppCategory(from context: String?) -> String {
+        guard let context = context else { return "other" }
+        // Look for "category: xxx)" pattern in context
+        if let range = context.range(of: "category: "),
+           let endRange = context[range.upperBound...].range(of: ")") {
+            return String(context[range.upperBound..<endRange.lowerBound])
+        }
+        return "other"
+    }
+
+    /// Returns app-specific formatting guidance based on the detected app category
+    private func formattingRules(for category: String) -> String {
+        switch category {
+        case "messaging":
+            return """
+            TONE & FORMAT (Text Message):
+            - Keep it casual and conversational — this is a text message, not an essay
+            - Use lowercase naturally (don't force-capitalize sentence starts unless it feels right)
+            - Short sentences. No long paragraphs
+            - It's fine to use contractions (don't, won't, can't, it's)
+            - Don't over-punctuate — skip trailing periods on single sentences (texts don't usually end with ".")
+            - Preserve the speaker's casual tone — don't make it sound formal
+            - Emojis: only if the speaker clearly said an emoji name (e.g. "smiley face" → 😊), never add them
+            """
+
+        case "email":
+            return """
+            TONE & FORMAT (Email):
+            - Professional but natural tone — not robotic, not overly casual
+            - Proper capitalization and punctuation throughout
+            - Use paragraph breaks between distinct thoughts
+            - If the speaker dictates a greeting ("hey", "hi", "dear"), format it as an email opening on its own line
+            - If the speaker says "sign off" or dictates a closing ("thanks", "best", "regards"), put it on its own line
+            - Keep sentences well-structured and clear
+            - Bullet points or numbered lists if the speaker is listing items
+            """
+
+        case "chat":
+            return """
+            TONE & FORMAT (Slack / Team Chat):
+            - Conversational but professional — like talking to a coworker
+            - Use contractions naturally
+            - Keep messages concise — Slack messages should be scannable
+            - If listing items, use bullet points
+            - Proper capitalization at sentence starts
+            - End sentences with periods only if there are multiple sentences; skip for single-sentence messages
+            """
+
+        case "ide":
+            return """
+            TONE & FORMAT (Code Editor):
+            - The user is likely dictating a code comment, commit message, PR description, or documentation
+            - Use technical language precisely — don't simplify technical terms
+            - For comments: be concise and direct ("Fix null check in auth flow" not "This fixes the null check issue")
+            - Preserve technical terms, function names, variable names, and file paths exactly as spoken
+            - If the context includes project files and the speaker mentions something that sounds like a file name, match it to the actual file path
+            - Use imperative mood for commit-style messages ("Add", "Fix", "Update", "Remove")
+            """
+
+        case "notes":
+            return """
+            TONE & FORMAT (Notes):
+            - Clean, organized formatting — this is for personal reference
+            - Use bullet points and numbered lists liberally when the speaker is listing or organizing thoughts
+            - Use headers (lines ending with colon or clearly topic-introducing phrases) on their own line
+            - Paragraph breaks between distinct topics
+            - It's fine to be slightly informal since these are personal notes
+            - Preserve TODO items, action items, and key decisions clearly
+            """
+
+        case "document":
+            return """
+            TONE & FORMAT (Document / Writing):
+            - Polished, professional prose
+            - Proper paragraph structure with clear topic sentences
+            - Full punctuation and capitalization
+            - Avoid contractions in formal documents (use "do not" instead of "don't")
+            - Use transitions between paragraphs when appropriate
+            - Bullet points and numbered lists when the speaker is enumerating
+            """
+
+        case "social":
+            return """
+            TONE & FORMAT (Social Media):
+            - Concise and punchy — social posts should be engaging
+            - Casual but clear
+            - If the speaker mentions a hashtag, format it as #hashtag (no space)
+            - If the speaker mentions an @ mention, format as @username
+            - Keep it to the point — no unnecessary filler
+            """
+
+        case "terminal":
+            return """
+            TONE & FORMAT (Terminal):
+            - The user is likely dictating a command, script, or technical note
+            - Preserve exact technical terms, flags, and command syntax
+            - Don't add punctuation to what sounds like a command
+            - Be extremely precise with spacing and formatting
+            """
+
+        case "browser":
+            return """
+            TONE & FORMAT (Browser):
+            - Detect what the user is likely typing into: search bar, form field, social media, web email, etc.
+            - For search queries: keep it short and keyword-focused, no punctuation needed
+            - For web forms or comments: use a natural, clear tone appropriate to the site
+            - For web-based email/chat (Gmail, Slack web): follow email or chat formatting rules
+            """
+
+        default:
+            return """
+            TONE & FORMAT (General):
+            - Use clear, natural written English
+            - Proper capitalization and punctuation
+            - Paragraph breaks between distinct thoughts
+            - Match the speaker's apparent level of formality
+            """
         }
     }
-    
+
+    func enhanceWithOpenAI(_ text: String, appContext: String? = nil) async throws -> String {
+        let openAIProvider = UserDefaults.standard.string(forKey: "OpenAIProvider") ?? "azure"
+
+        if openAIProvider == "azure" {
+            return try await enhanceWithAzureOpenAI(text, appContext: appContext)
+        } else {
+            return try await enhanceWithStandardOpenAI(text, appContext: appContext)
+        }
+    }
+
     /// Enhanced transcript processing using Azure OpenAI
-    func enhanceWithAzureOpenAI(_ text: String) async throws -> String {
-        // Check if Azure OpenAI configuration is available
+    func enhanceWithAzureOpenAI(_ text: String, appContext: String? = nil) async throws -> String {
         guard let config = AzureOpenAIConfig.fromEnvironment() else {
-            print("Azure OpenAI configuration not found, using local processing")
             return cleanTranscript(text)
         }
 
-        // Create system prompt with instructions
-        let systemPrompt = """
-        You are an AI assistant that improves transcribed speech. Follow these rules:
-        1. Remove filler words (um, uh, like, etc.)
-        2. Fix grammar and punctuation
-        3. Maintain the speaker's original meaning and intent
-        4. Format properly with paragraphs where appropriate
-        5. Process voice formatting commands by replacing them with the actual formatting (including phonetically similar variations):
-           - "comma" or "kamma" or "coma" → ,
-           - "period" or "full stop" → .
-           - "question mark" → ?
-           - "exclamation point" or "exclamation mark" → !
-           - "new line" or "newline" or "return" or "enter" → actual line break
-           - "bullet point" or "bullet" or "bullitt" → new line with bullet (• )
-           - "colon" → :
-           - "semicolon" or "semi colon" → ;
-        6. If the speaker corrects themselves, only keep the correction
+        let systemPrompt = buildSystemPrompt(appContext: appContext)
 
-        Return only the improved text with no explanations or other content.
-        """
-        
-        // Create API request URL - use the endpoint directly as it's now correctly formatted in environment variables
         let requestURL: String
         if config.endpoint.contains("?api-version=") {
-            // If endpoint already includes the API version, use it directly
             requestURL = config.endpoint
         } else {
-            // Otherwise construct the URL
             requestURL = "\(config.endpoint)openai/deployments/\(config.deploymentName)/chat/completions?api-version=\(config.apiVersion)"
         }
-        
-        // Create request body
+
         let requestBody = AzureOpenAIRequest(
             messages: [
                 Message(role: "system", content: systemPrompt),
-                Message(role: "user", content: "Here is the transcribed speech to improve: \"\(text)\"")
+                Message(role: "user", content: text)
             ],
             temperature: 0.3,
             maxTokens: 1000
         )
-        
-        // Encode request
+
         let jsonData = try JSONEncoder().encode(requestBody)
-        
-        // Create URLRequest
+
         var request = URLRequest(url: URL(string: requestURL)!)
         request.httpMethod = "POST"
         request.addValue("application/json", forHTTPHeaderField: "Content-Type")
         request.addValue(config.apiKey, forHTTPHeaderField: "api-key")
         request.httpBody = jsonData
-        
-        // Send request
+
         let (data, response) = try await URLSession.shared.data(for: request)
-        
-        // Check response
+
         guard let httpResponse = response as? HTTPURLResponse else {
             throw NSError(domain: "TranscriptCleaner", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid response"])
         }
-        
+
         guard httpResponse.statusCode == 200 else {
             let errorString = String(data: data, encoding: .utf8) ?? "Unknown error"
             throw NSError(domain: "TranscriptCleaner", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "API Error: \(errorString)"])
         }
-        
-        // Decode response
+
         let apiResponse = try JSONDecoder().decode(AzureOpenAIResponse.self, from: data)
-        
-        // Extract cleaned text
+
         guard let content = apiResponse.choices.first?.message.content else {
             throw NSError(domain: "TranscriptCleaner", code: -1, userInfo: [NSLocalizedDescriptionKey: "No content in response"])
         }
-        
-        // Strip surrounding quotes if present (Azure OpenAI sometimes wraps responses in quotes)
-        let cleanedContent = stripSurroundingQuotes(content)
-        
-        return cleanedContent
+
+        return stripSurroundingQuotes(content)
     }
-    
+
     /// Structure for standard OpenAI API request
     struct OpenAIRequest: Codable {
         let messages: [Message]
         let model: String
         let temperature: Float
         let max_tokens: Int
-        
+
         enum CodingKeys: String, CodingKey {
             case messages, model, temperature
             case max_tokens = "max_tokens"
         }
     }
-    
+
     /// Enhanced transcript processing using standard OpenAI API
-    func enhanceWithStandardOpenAI(_ text: String) async throws -> String {
-        // Check if OpenAI configuration is available
+    func enhanceWithStandardOpenAI(_ text: String, appContext: String? = nil) async throws -> String {
         guard let config = OpenAIConfig.fromEnvironment() else {
-            print("OpenAI configuration not found, using local processing")
             return cleanTranscript(text)
         }
-        
-        // Create system prompt with instructions
-        let systemPrompt = """
-        You are an AI assistant that improves transcribed speech. Follow these rules:
-        1. Remove filler words (um, uh, like, etc.)
-        2. Fix grammar and punctuation
-        3. Maintain the speaker's original meaning and intent
-        4. Format properly with paragraphs where appropriate
-        5. Process voice formatting commands by replacing them with the actual formatting (including phonetically similar variations):
-           - "comma" or "kamma" or "coma" → ,
-           - "period" or "full stop" → .
-           - "question mark" → ?
-           - "exclamation point" or "exclamation mark" → !
-           - "new line" or "newline" or "return" or "enter" → actual line break
-           - "bullet point" or "bullet" or "bullitt" → new line with bullet (• )
-           - "colon" → :
-           - "semicolon" or "semi colon" → ;
-        6. If the speaker corrects themselves, only keep the correction
 
-        Return only the improved text with no explanations or other content.
-        """
+        let systemPrompt = buildSystemPrompt(appContext: appContext)
 
-        // Create API request URL
         let requestURL = "\(config.baseURL)/chat/completions"
-        
-        // Create request body
+
         let requestBody = OpenAIRequest(
             messages: [
                 Message(role: "system", content: systemPrompt),
@@ -805,29 +903,24 @@ extension TranscriptCleaner {
             temperature: 0.1,
             max_tokens: 1000
         )
-        
-        // Create URL request
+
         guard let url = URL(string: requestURL) else {
             throw NSError(domain: "TranscriptCleaner", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid OpenAI URL"])
         }
-        
+
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(config.apiKey)", forHTTPHeaderField: "Authorization")
-        
-        // Encode request body
-        let encoder = JSONEncoder()
-        request.httpBody = try encoder.encode(requestBody)
-        
-        // Send request
+
+        request.httpBody = try JSONEncoder().encode(requestBody)
+
         let (data, response) = try await URLSession.shared.data(for: request)
-        
-        // Check HTTP response
+
         guard let httpResponse = response as? HTTPURLResponse else {
             throw NSError(domain: "TranscriptCleaner", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid response type"])
         }
-        
+
         guard httpResponse.statusCode == 200 else {
             let errorMessage = "OpenAI API error: \(httpResponse.statusCode)"
             print("❌ \(errorMessage)")
@@ -836,19 +929,14 @@ extension TranscriptCleaner {
             }
             throw NSError(domain: "TranscriptCleaner", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: errorMessage])
         }
-        
-        // Parse response
-        let decoder = JSONDecoder()
-        let openAIResponse = try decoder.decode(AzureOpenAIResponse.self, from: data) // Use same response structure
-        
+
+        let openAIResponse = try JSONDecoder().decode(AzureOpenAIResponse.self, from: data)
+
         guard let choice = openAIResponse.choices.first else {
             throw NSError(domain: "TranscriptCleaner", code: -1, userInfo: [NSLocalizedDescriptionKey: "No content in OpenAI response"])
         }
-        
-        let content = choice.message.content
-        
-        let enhancedText = content.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
-        print("✅ Successfully enhanced transcript using OpenAI (\(config.model))")
+
+        let enhancedText = choice.message.content.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
         return enhancedText
     }
 }

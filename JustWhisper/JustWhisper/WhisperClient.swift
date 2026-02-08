@@ -276,7 +276,7 @@ class WhisperClient: ObservableObject {
     private func transcribeWithOpenAI(audioData: Data) async throws -> String {
         // OpenAI Whisper configuration - get from UserDefaults (user preferences)
         let apiKey = UserDefaults.standard.string(forKey: "OpenAIWhisperAPIKey") ?? ""
-        let model = UserDefaults.standard.string(forKey: "OpenAIWhisperModel") ?? "whisper-1"
+        let model = UserDefaults.standard.string(forKey: "OpenAIWhisperModel") ?? "gpt-4o-mini-transcribe"
         let baseURL = UserDefaults.standard.string(forKey: "OpenAIWhisperBaseURL") ?? "https://api.openai.com/v1"
         
         await addLog("Using OpenAI Whisper configuration from user preferences", level: .info)
@@ -591,34 +591,36 @@ class WhisperClient: ObservableObject {
         body.append("--\(boundary)\r\n".data(using: .utf8)!)
         body.append("Content-Disposition: form-data; name=\"model\"\r\n\r\n".data(using: .utf8)!)
         body.append("\(model)\r\n".data(using: .utf8)!)
-        
-        // Response format - try verbose_json to get more details
+
+        // Response format - verbose_json only supported by whisper-1
+        let responseFormat = model.contains("whisper") ? "verbose_json" : "json"
         body.append("--\(boundary)\r\n".data(using: .utf8)!)
         body.append("Content-Disposition: form-data; name=\"response_format\"\r\n\r\n".data(using: .utf8)!)
-        body.append("verbose_json\r\n".data(using: .utf8)!)
-        
-        // Language (helps with accuracy)
-        body.append("--\(boundary)\r\n".data(using: .utf8)!)
-        body.append("Content-Disposition: form-data; name=\"language\"\r\n\r\n".data(using: .utf8)!)
-        body.append("en\r\n".data(using: .utf8)!)
-        
-        // Temperature for more focused results - using 0.0 for most deterministic output
-        body.append("--\(boundary)\r\n".data(using: .utf8)!)
-        body.append("Content-Disposition: form-data; name=\"temperature\"\r\n\r\n".data(using: .utf8)!)
-        body.append("0.0\r\n".data(using: .utf8)!)
-        
+        body.append("\(responseFormat)\r\n".data(using: .utf8)!)
+
+        // Language and temperature - only supported by whisper-1
+        if model.contains("whisper") {
+            body.append("--\(boundary)\r\n".data(using: .utf8)!)
+            body.append("Content-Disposition: form-data; name=\"language\"\r\n\r\n".data(using: .utf8)!)
+            body.append("en\r\n".data(using: .utf8)!)
+
+            body.append("--\(boundary)\r\n".data(using: .utf8)!)
+            body.append("Content-Disposition: form-data; name=\"temperature\"\r\n\r\n".data(using: .utf8)!)
+            body.append("0.0\r\n".data(using: .utf8)!)
+        }
+
         // Audio file
         body.append("--\(boundary)\r\n".data(using: .utf8)!)
         body.append("Content-Disposition: form-data; name=\"file\"; filename=\"audio.wav\"\r\n".data(using: .utf8)!)
         body.append("Content-Type: audio/wav\r\n\r\n".data(using: .utf8)!)
         body.append(audioData)
         body.append("\r\n".data(using: .utf8)!)
-        
+
         // End boundary
         body.append("--\(boundary)--\r\n".data(using: .utf8)!)
-        
+
         request.httpBody = body
-        
+
         return request
     }
 }
